@@ -1,0 +1,15 @@
+{
+  "actorSpecification": 1,
+  "name": "cdtech/apify-actor-process-scan-modular",
+  "version": "0.1",
+  "buildTag": "latest",
+  "environmentVariables": {
+    "OPENAI_API_KEY": "YOUR_OPENAI_KEY",
+    "PDFCO_API_KEY": "YOUR_PDFCO_KEY",
+    "GRAPH_TENANT_ID_ONEDRIVE": "YOUR_TENANT_ID",
+    "GRAPH_CLIENT_ID_ONEDRIVE": "YOUR_CLIENT_ID",
+    "GRAPH_CLIENT_SECRET_ONEDRIVE": "YOUR_CLIENT_SECRET"
+  },
+  "dockerfile": "./Dockerfile",
+  "inputSchema": "input_schema.json"
+}

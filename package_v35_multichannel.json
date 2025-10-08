@@ -1,0 +1,172 @@
+{
+  "name": "enhanced-multichannel-actor",
+  "version": "3.5.0",
+  "description": "Enhanced Multi-Channel Actor v3.5 - Unified Communication Hub mit Railway LangGraph AI Integration für Email, SipGate und WhatsApp",
+  "main": "src/main.py",
+  "scripts": {
+    "start": "python3 src/main_v35_multichannel.py",
+    "test": "python3 src/main_v35_multichannel.py test",
+    "dev": "python3 -u src/main_v35_multichannel.py"
+  },
+  "author": "C&D Tech GmbH",
+  "license": "MIT",
+  "keywords": [
+    "apify",
+    "email-processing",
+    "sipgate-integration", 
+    "whatsapp-automation",
+    "railway-langgraph",
+    "multi-channel",
+    "ai-integration",
+    "crm-automation",
+    "unified-communication",
+    "webhook-processing"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cunddtech/my-langgraph-agent"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "python": ">=3.8.0"
+  },
+  "apify": {
+    "actorSpecification": 1,
+    "name": "enhanced-multichannel-actor",
+    "title": "Enhanced Multi-Channel Actor v3.5",
+    "description": "Unified Communication Hub mit Railway LangGraph AI Integration für Email, SipGate Calls und WhatsApp Messages. Bietet intelligente AI-Analyse, automatisches Contact Matching, Task Generation und einheitliche CRM-Integration über alle Kommunikationskanäle hinweg.",
+    "version": "3.5",
+    "meta": {
+      "templateId": "enhanced-multichannel-actor"
+    },
+    "input": "./input_schema_v35_multichannel.json",
+    "dockerfile": "./Dockerfile",
+    "readme": "./README_v35_multichannel.md",
+    "storages": {
+      "dataset": {
+        "actorSpecification": 1,
+        "title": "Multi-Channel Processing Results",
+        "description": "Ergebnisse der Multi-Channel Verarbeitung mit AI-Analyse und CRM-Integration",
+        "views": {
+          "overview": {
+            "title": "Multi-Channel Overview",
+            "transformation": {
+              "fields": [
+                "multichannel_processing.channel_type",
+                "multichannel_processing.message_id", 
+                "multichannel_processing.processing_timestamp",
+                "contact_info.name",
+                "contact_info.primary_contact",
+                "content_summary.channel",
+                "analytics.processing_steps_completed",
+                "multichannel_processing.zapier_sent"
+              ]
+            }
+          },
+          "email_processing": {
+            "title": "Email Processing Details",
+            "transformation": {
+              "fields": [
+                "multichannel_processing.channel_type",
+                "multichannel_processing.message_id",
+                "contact_info.name",
+                "content_summary.primary_content",
+                "attachments_media",
+                "analytics.email_metrics"
+              ]
+            }
+          },
+          "call_processing": {
+            "title": "SipGate Call Processing",
+            "transformation": {
+              "fields": [
+                "multichannel_processing.channel_type",
+                "multichannel_processing.message_id",
+                "contact_info.additional_info.phone",
+                "analytics.call_metrics.call_duration",
+                "analytics.call_metrics.call_answered",
+                "analytics.call_metrics.has_transcription"
+              ]
+            }
+          },
+          "whatsapp_processing": {
+            "title": "WhatsApp Message Processing",
+            "transformation": {
+              "fields": [
+                "multichannel_processing.channel_type", 
+                "multichannel_processing.message_id",
+                "contact_info.additional_info.whatsapp_phone",
+                "analytics.whatsapp_metrics.message_type",
+                "analytics.whatsapp_metrics.is_group_message",
+                "analytics.whatsapp_metrics.has_media"
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "categories": [
+    "AUTOMATION",
+    "COMMUNICATION",
+    "AI_TOOLS", 
+    "CRM",
+    "WEBHOOKS"
+  ],
+  "dependencies": {
+    "python": {
+      "aiohttp": ">=3.8.0",
+      "requests": ">=2.28.0",
+      "python-dotenv": ">=0.19.0",
+      "beautifulsoup4": ">=4.11.0",
+      "lxml": ">=4.9.0",
+      "openai": ">=1.0.0",
+      "pypdf2": ">=3.0.0",
+      "Pillow": ">=9.0.0",
+      "python-dateutil": ">=2.8.0"
+    }
+  },
+  "compatibility": {
+    "apifyPlatform": ">=3.0.0",
+    "pythonVersion": ">=3.8.0"
+  },
+  "features": [
+    "🚀 Multi-Channel Processing (Email + SipGate + WhatsApp)",
+    "🤖 Railway LangGraph AI Integration", 
+    "👥 Unified Contact Matching via WeClapp CRM",
+    "📋 AI-based Task Generation",
+    "🔗 Enhanced Zapier Integration", 
+    "📊 Multi-Channel Analytics",
+    "🎯 Intelligent Workflow Routing",
+    "📎 Unified Media/Attachment Processing",
+    "🔄 Smart Fallback Systems",
+    "⚡ Real-time Webhook Processing"
+  ],
+  "changelog": {
+    "3.5.0": {
+      "date": "2025-10-08",
+      "changes": [
+        "✨ NEW: Multi-Channel Support für SipGate und WhatsApp",
+        "🚀 NEW: Unified Communication Hub Architecture", 
+        "🤖 ENHANCED: Railway LangGraph Integration für alle Channels",
+        "👥 NEW: Multi-Channel Contact Matching",
+        "📋 NEW: Channel-specific Task Generation",
+        "🔗 ENHANCED: Multi-Channel Zapier Payloads",
+        "📊 NEW: Comprehensive Multi-Channel Analytics",
+        "🎯 NEW: Dynamic Endpoint Routing basiert auf Channel Type",
+        "📎 NEW: Unified Media Processing für alle Channels",
+        "🔄 ENHANCED: Robust Fallback Systems"
+      ]
+    },
+    "3.4.0": {
+      "date": "2025-10-08", 
+      "changes": [
+        "✅ Hybrid Email Processing mit vollständiger ursprünglicher Pipeline",
+        "🤖 Railway LangGraph AI Integration",
+        "👥 Contact Matching via WeClapp",
+        "📋 AI Task Generation",
+        "🔗 Enhanced Zapier Integration"
+      ]
+    }
+  }
+}

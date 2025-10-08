@@ -1,0 +1,12 @@
+import unittest
+from unittest.mock import patch
+
+class TestApifyActor(unittest.TestCase):
+    @patch('module_containing_actor_function')
+    def test_actor_function(self, mock_actor_function):
+        mock_actor_function.return_value = 'expected_output'
+        result = mock_actor_function('input_data')
+        self.assertEqual(result, 'expected_output')
+
+if __name__ == '__main__':
+    unittest.main()

@@ -1,0 +1,80 @@
+{
+  "name": "enhanced-email-actor-webhook-extension",
+  "version": "3.4.1",
+  "description": "Enhanced Email Actor v3.4.1 - Minimale Webhook-Erweiterung für SipGate und WhatsApp, nutzt bestehende WeClapp Integration",
+  "main": "src/main.py",
+  "scripts": {
+    "start": "python3 src/main_v341.py",
+    "dev": "python3 -u src/main_v341.py"
+  },
+  "author": "C&D Tech GmbH",
+  "license": "MIT",
+  "keywords": [
+    "apify",
+    "email-processing",
+    "webhook-extension", 
+    "sipgate-webhook",
+    "whatsapp-webhook",
+    "railway-langgraph",
+    "weclapp-integration",
+    "minimal-extension"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cunddtech/my-langgraph-agent"
+  },
+  "engines": {
+    "python": ">=3.8.0"
+  },
+  "apify": {
+    "actorSpecification": 1,
+    "name": "enhanced-email-actor-webhook-extension",
+    "title": "Enhanced Email Actor v3.4.1 - Webhook Extension",
+    "description": "Minimale Webhook-Erweiterung für SipGate Calls und WhatsApp Messages. Nutzt bestehende WeClapp Integration, Datenbank und v3.4 Pipeline. Transformiert Webhook-Daten automatisch zu Email-Format für nahtlose Integration.",
+    "version": "3.4.1",
+    "meta": {
+      "templateId": "enhanced-email-actor-webhook"
+    },
+    "input": "./input_schema_v341.json",
+    "dockerfile": "./Dockerfile",
+    "readme": "./README_v341.md"
+  },
+  "categories": [
+    "AUTOMATION",
+    "COMMUNICATION",
+    "WEBHOOKS", 
+    "CRM"
+  ],
+  "dependencies": {
+    "python": {
+      "requests": ">=2.28.0",
+      "python-dotenv": ">=0.19.0"
+    }
+  },
+  "features": [
+    "🔗 SipGate Call Webhook Support",
+    "💬 WhatsApp Message Webhook Support", 
+    "🚀 Railway LangGraph AI Integration",
+    "👥 Bestehende WeClapp CRM Integration",
+    "💾 Bestehende Datenbank Integration",
+    "📧 Vollständige v3.4 Email Pipeline",
+    "🔄 Automatische Webhook-zu-Email Transformation",
+    "⚡ Minimaler Code Footprint (150 Zeilen)",
+    "🛡️ Smart Fallback auf bestehende Systeme"
+  ],
+  "changelog": {
+    "3.4.1": {
+      "date": "2025-10-08",
+      "changes": [
+        "✨ NEW: SipGate Call Webhook Support",
+        "✨ NEW: WhatsApp Message Webhook Support", 
+        "🔄 NEW: Automatische Webhook Source Detection",
+        "🔧 NEW: Smart Transformation zu Email-Format",
+        "✅ PRESERVES: Alle bestehenden v3.4 Features",
+        "✅ PRESERVES: WeClapp Integration",
+        "✅ PRESERVES: Datenbank Integration",
+        "⚡ MINIMAL: Nur 150 Zeilen zusätzlicher Code"
+      ]
+    }
+  }
+}

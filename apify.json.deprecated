@@ -1,0 +1,7 @@
+{
+  "name": "mail2zapier2apify2gpt2onedrive",
+  "title": "Mail to Zapier to Apify to GPT to OneDrive",
+  "description": "Ein Actor, der E-Mails verarbeitet und Daten an Zapier, Apify, GPT und OneDrive sendet.",
+  "version": "0.1",
+  "env": {}
+}

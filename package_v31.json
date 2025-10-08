@@ -1,0 +1,42 @@
+{
+  "name": "enhanced-email-actor",
+  "version": "3.1.0",
+  "description": "Enhanced Email Processing Chain with Railway LangGraph AI Integration - Apify Compatible",
+  "main": "src/main_v31.py",
+  "author": "C&D Tech GmbH",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cunddtech/my-langgraph-agent"
+  },
+  "keywords": [
+    "email-processing",
+    "apify",
+    "railway",
+    "langgraph",
+    "ai-integration",
+    "weclapp",
+    "onedrive",
+    "outlook"
+  ],
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "apify": {
+    "sdk": "python",
+    "runtime": "python3.11",
+    "categories": ["AI", "AUTOMATION", "EMAIL"],
+    "isPublic": false
+  },
+  "environment": {
+    "ORCHESTRATOR_URL": "https://my-langgraph-agent-production.up.railway.app",
+    "RAILWAY_INTEGRATION": "true",
+    "DEBUG": "false"
+  },
+  "changelog": {
+    "3.1.0": "Enhanced Email Actor with Railway LangGraph Integration, removed Pydantic dependencies for Apify compatibility",
+    "3.0.0": "Railway integration with Pydantic (had compatibility issues)",
+    "2.0.0": "Standard email processing with WeClapp integration",
+    "1.0.0": "Basic email processing actor"
+  }
+}

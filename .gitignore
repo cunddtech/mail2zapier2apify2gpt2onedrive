@@ -1,0 +1,88 @@
+# Sensible Files - Do not commit API Keys
+.env
+.env.local  
+.env.production
+
+# API Keys und Tokens - CRITICAL
+*apify_api*
+*token*
+
+# Input Files mit sensiblen Daten
+input.json
+test_input*.json 
+test_webhook.json
+
+# Actor Config mit Environment Variables
+.actor/actor.json
+
+# Input Schema mit API URLs/Tokens  
+input_schema*.json
+enhanced-email-actor-webhook-v341/input_schema.json
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Apify storage
+apify_storage/
+.actor/
+
+# System files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# Logs
+*.log
+logs/
+
+# Backup files
+*.bak
+*.backup
+
+# Temp directories
+Temp/
+temp/
+tmp/
+Thumbs.db
+
+# Ignore IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Ignore logs
+*.log
+logs/
+
+# Ignore temporary files
+temp/
+tmp/
+Temp/
+
+# Ignore SQLite databases (will be created automatically)
+*.db
+*.sqlite
+*.sqlite3
+
+# Ignore backup files
+*~
+*.bak
+*.tmp
+
+# Ignore node modules (if any)
+node_modules/
+
+# Ignore test files with sensitive data
+test_*.json
+*_test.json
+
+# Keep example files
+!.env.example
+!test_example.json

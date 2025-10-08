@@ -1,0 +1,73 @@
+import os
+import asyncio
+import json
+from apify import Actor
+from modules.mail.process_email_workflow import process_email_workflow
+from modules.utils.debug_log import debug_log
+from modules.auth.get_graph_token_onedrive import get_graph_token_onedrive
+from modules.auth.get_graph_token_mail import get_graph_token_mail
+
+# Webhook für Notfall-Alarm
+ALERT_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/17762912/2xh8rlk/"
+
+async def main():
+    # Actor initialisieren
+    async with Actor:
+        # Eingabedaten abrufen
+        input_data = await Actor.get_input()
+        if not input_data:
+            debug_log("❌ Keine Eingabedaten empfangen. Abbruch.")
+            await Actor.exit(91)
+            return
+
+        debug_log(f"📥 Eingabedaten: {json.dumps(input_data, indent=2)}")
+
+        # Fallback für Zapier-Webhook definieren
+        input_data["zapier_webhook"] = input_data.get("zapier_webhook") or ALERT_WEBHOOK_URL
+
+        # PDF-Link prüfen
+        public_link = input_data.get("pdf_url")
+        if public_link:
+            debug_log(f"🔗 PDF-Link empfangen: {public_link}")
+        else:
+            debug_log("⚠️ Kein PDF-Link vorhanden (nicht kritisch).")
+
+        # Wichtige Eingabedaten prüfen
+        user_email = input_data.get("user_email")
+        message_id = input_data.get("message_id")
+
+        if not user_email or not message_id:
+            debug_log("❌ user_email oder message_id fehlen. Abbruch.")
+            await Actor.exit(91)
+            return
+
+        # Zugriffstoken für Mail holen
+        access_token_mail = await get_graph_token_mail()
+        debug_log(f"📧 Zugriffstoken für Mail: {'Erfolgreich' if access_token_mail else 'Fehlgeschlagen'}")
+        if not access_token_mail:
+            debug_log("❌ Zugriffstoken für Mail konnte nicht geholt werden. Abbruch.")
+            await Actor.exit(91)
+            return
+
+        # Zugriffstoken für OneDrive holen
+        access_token_onedrive = await get_graph_token_onedrive()
+        debug_log(f"📂 Zugriffstoken für OneDrive: {'Erfolgreich' if access_token_onedrive else 'Fehlgeschlagen'}")
+        if not access_token_onedrive:
+            debug_log("❌ Zugriffstoken für OneDrive konnte nicht geholt werden. Abbruch.")
+            await Actor.exit(91)
+            return
+
+        # Haupt-Workflow starten
+        debug_log(f"🔍 Starte Haupt-Workflow mit public_link={public_link}, input_data={json.dumps(input_data, indent=2)}")
+        try:
+            await process_email_workflow(public_link, input_data, access_token_mail, access_token_onedrive)
+        except Exception as e:
+            debug_log(f"❌ Fehler in der Hauptlogik: {e}")
+            await Actor.exit(1)
+            return
+
+    debug_log("🏁 Mail-Actor abgeschlossen.")
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())

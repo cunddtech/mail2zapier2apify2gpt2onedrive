@@ -1,0 +1,174 @@
+{
+    "name": "enhanced-email-actor-v34-hybrid",
+    "version": "3.4.0",
+    "description": "🚀 Enhanced Email Actor v3.4 - Railway LangGraph AI Integration + Complete Email Processing (Hybrid Version)",
+    "keywords": [
+        "email",
+        "ai",
+        "langgraph",
+        "railway",
+        "attachment",
+        "onedrive",
+        "hybrid",
+        "crm",
+        "zapier",
+        "microsoft-graph"
+    ],
+    "author": {
+        "name": "C&D Tech",
+        "email": "info@cdtech.de"
+    },
+    "license": "UNLICENSED",
+    "private": true,
+    "engines": {
+        "node": ">=18",
+        "python": ">=3.11"
+    },
+    "scripts": {
+        "start": "python src/main_v34_hybrid.py",
+        "test": "python -m pytest tests/",
+        "install-deps": "pip install -r requirements.txt",
+        "check-imports": "python modules/tools/check_imports.py"
+    },
+    "apify": {
+        "buildTag": "latest",
+        "mainScript": "src/main_v34_hybrid.py",
+        "runtime": "python:3.11-slim",
+        "timeout": 300,
+        "memoryMbytes": 2048,
+        "cpuCores": 1,
+        "platform": "linux/amd64",
+        "categories": [
+            "AI",
+            "Email",
+            "CRM",
+            "Microsoft"
+        ],
+        "supportedOsVersions": ["ubuntu:20.04", "ubuntu:22.04"],
+        "environmentVariables": {
+            "ORCHESTRATOR_URL": {
+                "defaultValue": "https://my-langgraph-agent-production.up.railway.app",
+                "description": "Railway LangGraph Orchestrator URL"
+            },
+            "RAILWAY_INTEGRATION": {
+                "defaultValue": "true",
+                "description": "Enable Railway LangGraph Integration"
+            },
+            "DEBUG": {
+                "defaultValue": "false",
+                "description": "Enable debug mode for detailed logging"
+            },
+            "PYTHONPATH": {
+                "defaultValue": "/usr/src/app",
+                "description": "Python module path"
+            }
+        },
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "message_id": {
+                    "type": "string",
+                    "title": "Message ID",
+                    "description": "Unique identifier for the email message",
+                    "example": "AAMkADY2..."
+                },
+                "subject": {
+                    "type": "string", 
+                    "title": "Email Subject",
+                    "description": "Subject line of the email",
+                    "example": "Important Document"
+                },
+                "body_content": {
+                    "type": "string",
+                    "title": "Email Body",
+                    "description": "Content of the email body",
+                    "example": "Please find the attached document..."
+                },
+                "from_email_address_address": {
+                    "type": "string",
+                    "title": "Sender Email",
+                    "description": "Email address of the sender",
+                    "format": "email",
+                    "example": "sender@example.com"
+                },
+                "to_recipients_email_address_address": {
+                    "type": "string",
+                    "title": "Recipient Email", 
+                    "description": "Email address of the recipient",
+                    "format": "email",
+                    "example": "recipient@cdtech.de"
+                },
+                "attachments": {
+                    "type": "array",
+                    "title": "Email Attachments",
+                    "description": "List of email attachments to process",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {
+                                "type": "string",
+                                "title": "Attachment ID"
+                            },
+                            "name": {
+                                "type": "string",
+                                "title": "File Name"
+                            },
+                            "content_type": {
+                                "type": "string",
+                                "title": "MIME Type"
+                            },
+                            "size": {
+                                "type": "integer",
+                                "title": "File Size (bytes)"
+                            },
+                            "download_url": {
+                                "type": "string",
+                                "title": "Download URL"
+                            }
+                        }
+                    }
+                },
+                "source": {
+                    "type": "string",
+                    "title": "Source System",
+                    "description": "Source system that triggered processing",
+                    "default": "mail",
+                    "enum": ["mail", "zapier", "test", "manual"]
+                },
+                "railway_integration": {
+                    "type": "boolean",
+                    "title": "Enable Railway AI",
+                    "description": "Enable Railway LangGraph AI processing",
+                    "default": true
+                },
+                "enable_contact_matching": {
+                    "type": "boolean",
+                    "title": "Contact Matching",
+                    "description": "Enable CRM contact matching",
+                    "default": true
+                },
+                "enable_task_generation": {
+                    "type": "boolean",
+                    "title": "Task Generation",
+                    "description": "Enable AI task generation",
+                    "default": true
+                },
+                "zapier_webhook": {
+                    "type": "string",
+                    "title": "Zapier Webhook URL",
+                    "description": "Zapier webhook for notifications",
+                    "format": "uri"
+                }
+            },
+            "required": ["message_id"]
+        }
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/cdtech/mail2zapier2apify2gpt2onedrive.git"
+    },
+    "bugs": {
+        "url": "https://github.com/cdtech/mail2zapier2apify2gpt2onedrive/issues"
+    },
+    "homepage": "https://github.com/cdtech/mail2zapier2apify2gpt2onedrive#readme"
+}
