@@ -1,4 +1,16 @@
 requests
 python-dotenv
-apify-client==2.0.1
+apify
 urllib3>=2.0.0
+aiohttp
+asyncio
+openai
+azure-cognitiveservices-vision-computervision
+azure-ai-vision-imageanalysis  
+Pillow
+pypdf
+pandas
+openpyxl
+SQLAlchemy
+beautifulsoup4
+lxml

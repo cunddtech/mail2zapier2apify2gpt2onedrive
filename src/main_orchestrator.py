@@ -124,6 +124,76 @@ async def send_to_orchestrator(payload: Dict[str, Any]) -> Dict[str, Any]:
         debug_log(f"❌ Orchestrator Communication Error: {str(e)}")
         return {"status": "error", "message": str(e)}
 
+async def process_sipgate_call(input_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Verarbeitet SipGate Call-Daten (aus Backup integriert)
+    """
+    
+    try:
+        debug_log("📞 SipGate Call Processing gestartet...")
+        
+        # Call-Daten aus Input extrahieren
+        call_data = {
+            "callId": input_data.get("callId"),
+            "callDirection": input_data.get("event", "").replace("new", "").upper(),
+            "phoneNumber": input_data.get("from") or input_data.get("to"),
+            "formattedPhoneNumber": input_data.get("from") or input_data.get("to"),
+            "callerName": input_data.get("caller_name", "Unknown"),
+            "callerCompany": input_data.get("caller_company", ""),
+            "startTime": datetime.now().isoformat(),
+            "duration": input_data.get("duration", 0),
+            "callStatus": "ANSWERED" if input_data.get("duration", 0) > 0 else "MISSED",
+            "callQuality": "GOOD",
+            "userId": input_data.get("user", "system"),
+            "userName": input_data.get("user", "System User"),
+            "relatedEntityId": None,
+            "relatedEntityType": "customer"
+        }
+        
+        debug_log(f"📋 Call Data: {call_data}")
+        
+        return {
+            "status": "success",
+            "processing_method": "sipgate_call_management",
+            "call_data": call_data,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        debug_log(f"❌ SipGate Processing Error: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+async def process_whatsapp_message(input_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Verarbeitet WhatsApp Message-Daten 
+    """
+    
+    try:
+        debug_log("💬 WhatsApp Message Processing gestartet...")
+        
+        # Message-Daten aus Input extrahieren
+        message_data = {
+            "sender_phone": input_data.get("sender_phone"),
+            "sender_name": input_data.get("sender_name", "Unknown"),
+            "message_text": input_data.get("message_text", ""),
+            "message_type": input_data.get("message_type", "text"),
+            "chat_id": input_data.get("chat_id"),
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        debug_log(f"📋 Message Data: {message_data}")
+        
+        return {
+            "status": "success", 
+            "processing_method": "whatsapp_message_management",
+            "message_data": message_data,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        debug_log(f"❌ WhatsApp Processing Error: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
 async def process_with_original_system(input_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Verarbeitet mit dem ursprünglichen autarken System (Fallback)
@@ -219,9 +289,17 @@ async def main():
                     "timestamp": datetime.now().isoformat()
                 }
             else:
-                # Fallback: Ursprüngliches autarkes System
-                debug_log("🔄 Fallback zu ursprünglichem autarken System...")
-                result = await process_with_original_system(input_data)
+                # Fallback: Lead-Source-spezifische Verarbeitung
+                debug_log(f"🔄 Fallback zu {lead_source}-spezifischer Verarbeitung...")
+                
+                if lead_source == 'sipgate':
+                    result = await process_sipgate_call(input_data)
+                elif lead_source == 'whatsapp':
+                    result = await process_whatsapp_message(input_data)
+                else:
+                    # Email fallback zum ursprünglichen System
+                    result = await process_with_original_system(input_data)
+                
                 result["lead_source"] = lead_source
                 result["timestamp"] = datetime.now().isoformat()
 

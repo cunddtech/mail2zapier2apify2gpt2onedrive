@@ -1,4 +1,0 @@
-requests
-python-dotenv
-apify-client>=1.12.0
-urllib3>=2.0.0

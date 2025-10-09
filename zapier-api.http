@@ -1,0 +1,126 @@
+# Zapier API Configuration for VS Code REST Client
+# https://zapier.com/developer/documentation/v2/
+
+### Variables
+@baseUrl = https://zapier.com/api/v1
+@authToken = {{YOUR_ZAPIER_API_KEY}}
+@contentType = application/json
+
+### 1. Get User Profile (Test Authentication)
+GET {{baseUrl}}/me HTTP/1.1
+X-API-Key: {{authToken}}
+
+### 2. List all Zaps
+GET {{baseUrl}}/zaps HTTP/1.1
+X-API-Key: {{authToken}}
+
+### 3. Get specific Zap details
+# @prompt zapId Enter Zap ID
+GET {{baseUrl}}/zaps/{{zapId}} HTTP/1.1
+X-API-Key: {{authToken}}
+
+### 4. Create new Zap for SipGate Integration
+POST {{baseUrl}}/zaps HTTP/1.1
+X-API-Key: {{authToken}}
+Content-Type: {{contentType}}
+
+{
+  "title": "SipGate Call → Apify Lead Processing",
+  "description": "Process incoming SipGate calls through Apify workflow",
+  "steps": [
+    {
+      "app": "sipgate",
+      "event": "new_call"
+    },
+    {
+      "app": "webhook",
+      "action": "post",
+      "params": {
+        "url": "https://api.apify.com/v2/acts/cdtech~mail2zapier2apify2gpt2onedrive/runs",
+        "method": "POST"
+      }
+    }
+  ]
+}
+
+### 5. Trigger Zap manually (for testing)
+# @prompt zapId Enter Zap ID to trigger
+POST {{baseUrl}}/zaps/{{zapId}}/trigger HTTP/1.1
+X-API-Key: {{authToken}}
+Content-Type: {{contentType}}
+
+{
+  "test_data": {
+    "source": "sipgate",
+    "call_data": {
+      "from": "+49123456789",
+      "to": "+49987654321",
+      "direction": "incoming",
+      "timestamp": "2025-10-09T10:00:00Z"
+    }
+  }
+}
+
+### 6. Get Zap execution history
+GET {{baseUrl}}/zaps/{{zapId}}/logs HTTP/1.1
+X-API-Key: {{authToken}}
+
+### 7. WhatsApp Zap Configuration
+POST {{baseUrl}}/zaps HTTP/1.1
+X-API-Key: {{authToken}}
+Content-Type: {{contentType}}
+
+{
+  "title": "WhatsApp Message → Apify Lead Processing",
+  "description": "Process WhatsApp messages through Apify workflow",
+  "steps": [
+    {
+      "app": "whatsapp-business",
+      "event": "new_message"
+    },
+    {
+      "app": "code",
+      "action": "run_javascript",
+      "code": "// Transform WhatsApp data for Apify\nconst transformedData = {\n  source: 'whatsapp',\n  message_data: {\n    from: inputData.from,\n    message: inputData.message,\n    timestamp: inputData.timestamp\n  }\n};\noutput = [transformedData];"
+    },
+    {
+      "app": "apify",
+      "action": "run_actor",
+      "params": {
+        "actor_id": "cdtech~mail2zapier2apify2gpt2onedrive",
+        "input": "{{transformed_data}}"
+      }
+    }
+  ]
+}
+
+### 8. Update existing Zap
+# @prompt zapId Enter Zap ID to update
+PUT {{baseUrl}}/zaps/{{zapId}} HTTP/1.1
+X-API-Key: {{authToken}}
+Content-Type: {{contentType}}
+
+{
+  "title": "Updated SipGate Integration",
+  "enabled": true
+}
+
+### 9. Delete Zap (be careful!)
+# @prompt zapId Enter Zap ID to delete
+# DELETE {{baseUrl}}/zaps/{{zapId}} HTTP/1.1
+# X-API-Key: {{authToken}}
+
+### 10. Test Webhook Endpoint (for Apify)
+POST https://api.apify.com/v2/acts/cdtech~mail2zapier2apify2gpt2onedrive/runs HTTP/1.1
+Authorization: Bearer {{APIFY_TOKEN}}
+Content-Type: {{contentType}}
+
+{
+  "source": "sipgate_test",
+  "call_data": {
+    "from": "+49123456789",
+    "to": "+49987654321",
+    "direction": "incoming",
+    "timestamp": "2025-10-09T10:00:00Z"
+  }
+}

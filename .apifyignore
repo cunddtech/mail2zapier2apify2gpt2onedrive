@@ -1,0 +1,77 @@
+# Apify Ignore File - Multi-Channel Integration
+# Verhindert hängende Builds durch zu viele Dateien
+
+# Backup Ordner (sehr groß!)
+source-code*/
+orchestrator/
+
+# Git
+.git/
+.gitignore
+
+# Node modules 
+node_modules/
+package-lock.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+.venv/
+.env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Test Dateien
+test_*.json
+*_test.py
+test/
+
+# Temp Dateien  
+temp/
+Temp/
+tmp/
+
+# Documentation (nicht für Build nötig)
+*.md
+!README.md
+SETUP_INSTRUCTIONS.md
+GITHUB_SETUP_INSTRUCTIONS.md
+WEBHOOK_ORCHESTRATOR_CONFIG.md
+MULTI_CHANNEL_*.md
+SIPGATE_BACKUP_ANALYSIS.md
+
+# Build Artifacts
+dist/
+build/
+*.egg-info/
+
+# Apify Storage
+apify_storage/
+storage/
+
+# SQLite Datenbanken (nicht für Build nötig)
+*.db
+*.sqlite
+*.sqlite3
+
+# Backup Files
+*.bak
+*.backup

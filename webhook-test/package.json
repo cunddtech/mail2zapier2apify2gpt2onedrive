@@ -1,0 +1,18 @@
+{
+  "name": "webhook-test-server",
+  "version": "1.0.0",
+  "description": "Lokaler Test-Server für SipGate/WhatsApp Webhooks mit ngrok",
+  "main": "webhook-server.js",
+  "scripts": {
+    "start": "node webhook-server.js",
+    "dev": "nodemon webhook-server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
