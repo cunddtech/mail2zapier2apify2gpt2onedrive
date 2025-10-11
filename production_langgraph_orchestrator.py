@@ -166,10 +166,10 @@ class ProductionAIOrchestrator:
         self.weclapp_api_token = os.getenv("WECLAPP_API_TOKEN")
         self.weclapp_domain = os.getenv("WECLAPP_DOMAIN", "cdtech")
         
-        # Debug environment variables
-        print(f"🔍 DEBUG: OPENAI_API_KEY exists: {bool(self.openai_api_key)}")
-        print(f"🔍 DEBUG: OPENAI_API_KEY length: {len(self.openai_api_key) if self.openai_api_key else 0}")
-        print(f"🔍 DEBUG: All ENV vars: {list(os.environ.keys())}")
+        # ⚠️ SECURITY: Only log existence, NEVER log actual keys or full env list
+        print(f"🔍 Environment Check: OpenAI API Key configured: {bool(self.openai_api_key)}")
+        print(f"🔍 Environment Check: WeClapp API Token configured: {bool(self.weclapp_api_token)}")
+        print(f"🔍 Environment Check: Apify Token configured: {bool(self.apify_token)}")
         
         if not self.openai_api_key:
             raise ValueError("OPENAI_API_KEY environment variable required!")
@@ -758,7 +758,8 @@ async def process_email(request: Request):
         
     except Exception as e:
         logger.error(f"Email processing error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # ⚠️ SECURITY: Never expose internal error details to client
+        raise HTTPException(status_code=500, detail="Internal server error during email processing")
 
 @app.post("/webhook/ai-call")
 async def process_call(request: Request):
@@ -778,7 +779,8 @@ async def process_call(request: Request):
         
     except Exception as e:
         logger.error(f"Call processing error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # ⚠️ SECURITY: Never expose internal error details to client
+        raise HTTPException(status_code=500, detail="Internal server error during call processing")
 
 @app.post("/webhook/ai-whatsapp")
 async def process_whatsapp(request: Request):
@@ -798,7 +800,8 @@ async def process_whatsapp(request: Request):
         
     except Exception as e:
         logger.error(f"WhatsApp processing error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # ⚠️ SECURITY: Never expose internal error details to client
+        raise HTTPException(status_code=500, detail="Internal server error during WhatsApp processing")
 
 @app.get("/status")
 async def system_status():
