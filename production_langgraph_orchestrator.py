@@ -449,36 +449,54 @@ Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
             return ContactMatch(found=False, source="weclapp_unavailable")
         
         try:
-            # WeClapp API Call (vereinfacht)
+            # WeClapp API Call with email filter
             headers = {
                 "AuthenticationToken": self.weclapp_api_token,
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "Accept": "application/json"
             }
             
-            # Search by email or phone
+            # Search by email with filter
+            # WeClapp filter format: email-eq-{email}
+            email_filter = f"email-eq-{contact_identifier}"
             search_params = {
                 "serializationConfiguration": "IGNORE_EMPTY",
-                "pageSize": 10
+                "pageSize": 10,
+                "email": contact_identifier  # Direct email search
             }
             
             url = f"https://{self.weclapp_domain}.weclapp.com/webapp/api/v1/contact"
             
             async with aiohttp.ClientSession() as session:
+                # Try direct email search first
                 async with session.get(url, headers=headers, params=search_params) as response:
                     if response.status == 200:
                         data = await response.json()
                         
-                        # Simple contact matching logic
-                        for contact in data.get("result", []):
-                            if (contact_identifier.lower() in contact.get("email", "").lower() or
-                                contact_identifier in contact.get("phone", "")):
-                                
+                        # Check if any contacts were found
+                        contacts = data.get("result", [])
+                        if contacts:
+                            for contact in contacts:
+                                # Exact email match
+                                if contact.get("email", "").lower() == contact_identifier.lower():
+                                    return ContactMatch(
+                                        found=True,
+                                        contact_id=str(contact.get("id")),
+                                        contact_name=f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip(),
+                                        company=contact.get("company", {}).get("name") if contact.get("company") else None,
+                                        confidence=1.0,  # Exact match
+                                        source="weclapp"
+                                    )
+                        
+                        # If no exact match, check for partial matches
+                        for contact in contacts:
+                            if contact_identifier.lower() in contact.get("email", "").lower():
                                 return ContactMatch(
                                     found=True,
                                     contact_id=str(contact.get("id")),
                                     contact_name=f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip(),
-                                    company=contact.get("company", {}).get("name"),
-                                    confidence=0.9,
+                                    company=contact.get("company", {}).get("name") if contact.get("company") else None,
+                                    confidence=0.8,  # Partial match
                                     source="weclapp"
                                 )
             
