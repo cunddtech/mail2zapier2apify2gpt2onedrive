@@ -1,0 +1,16 @@
+# Railway Environment Variables Configuration
+# Add these to your Railway project settings
+
+# Required for Zapier Integration
+ZAPIER_NOTIFICATION_WEBHOOK=https://hooks.zapier.com/hooks/catch/17762912/2xh8rlk/
+NOTIFICATION_ENABLED=true
+
+# Optional Configuration
+NOTIFICATION_TIMEOUT=15
+NOTIFICATION_RETRY_COUNT=3
+NOTIFICATION_DEBUG=false
+
+# C&D Technologies Specific
+COMPANY_NAME=C&D Technologies GmbH
+TEAM_EMAILS=mj@cdtechnologies.de,info@cdtechnologies.de
+CRM_SYSTEM=WeClapp

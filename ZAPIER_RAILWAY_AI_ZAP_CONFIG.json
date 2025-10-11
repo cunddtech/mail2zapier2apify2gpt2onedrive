@@ -1,0 +1,74 @@
+{
+  "zap_name": "C&D Railway AI Notifications - Complete Lead Management",
+  "description": "Empfängt Railway AI Webhook und sendet Email-Benachrichtigungen für alle Kanäle (Email, SipGate, WhatsApp)",
+  
+  "trigger": {
+    "app": "webhooks",
+    "event": "catch_hook",
+    "webhook_url": "https://hooks.zapier.com/hooks/catch/17762912/2xh8rlk/",
+    "name": "Railway AI Webhook Catch"
+  },
+  
+  "actions": [
+    {
+      "step": 1,
+      "app": "email",
+      "event": "send_email",
+      "name": "Send AI Processing Notification",
+      
+      "email_config": {
+        "to": "mj@cdtechnologies.de, info@cdtechnologies.de",
+        "subject": "🤖 C&D AI: {{channel}} von {{from}} - {{summary}}",
+        
+        "body_html": "<!DOCTYPE html><html><head><style>body{font-family:Arial,sans-serif;line-height:1.6;color:#333}.header{background:#2c3e50;color:white;padding:20px;text-align:center}.content{padding:20px;background:#f8f9fa}.status{padding:10px;margin:10px 0;border-radius:5px}.success{background:#d4edda;border-left:4px solid #28a745}.warning{background:#fff3cd;border-left:4px solid #ffc107}.info{background:#e7f3ff;border-left:4px solid #007bff}.details{background:#fff;padding:15px;border:1px solid #ddd;border-radius:5px;margin:10px 0}</style></head><body><div class='header'><h1>🤖 C&D Technologies AI System</h1><h2>{{channel}} Processing Complete</h2></div><div class='content'><div class='status {{#if success}}success{{else}}warning{{/if}}'><strong>Status:</strong> {{#if success}}✅ Erfolgreich verarbeitet{{else}}⚠️ Fehler aufgetreten{{/if}}</div><div class='info'><h3>📞 Kontakt Details</h3><strong>Von:</strong> {{from}}<br><strong>Kanal:</strong> {{channel}}<br><strong>Zeitstempel:</strong> {{timestamp}}<br><strong>Workflow:</strong> {{workflow_path}}</div><div class='details'><h3>💬 Nachricht</h3><p>{{content_preview}}</p></div><div class='details'><h3>🎯 AI Analysis</h3><strong>Contact Match:</strong> {{#if contact_match.found}}✅ Bekannter Kunde: {{contact_match.contact_name}} ({{contact_match.company}}){{else}}🆕 Neuer Kontakt{{/if}}<br><strong>AI Confidence:</strong> {{contact_match.confidence}}%<br><strong>Processing Complete:</strong> {{#if processing_complete}}✅ Ja{{else}}⚠️ Teilweise{{/if}}</div><div class='details'><h3>📋 Generierte Tasks</h3>{{#each tasks_generated}}<div style='margin:10px 0;padding:10px;background:#f1f3f4;border-radius:3px'><strong>{{title}}</strong><br>{{description}}<br><em>Zugewiesen: {{assigned_to}} | Priorität: {{priority}} | Fällig: {{due_date}}</em></div>{{/each}}</div>{{#if errors}}<div class='status warning'><h3>⚠️ Fehler</h3>{{#each errors}}<li>{{this}}</li>{{/each}}</div>{{/if}}<div class='info'><p><strong>🔗 System URLs:</strong><br>Railway Orchestrator: https://my-langgraph-agent-production.up.railway.app<br>WeClapp CRM: https://cdtech.weclapp.com</p></div></div></body></html>",
+        
+        "body_plain": "🤖 C&D Technologies AI System Alert\n\n═══════════════════════════════════\n\n📞 KONTAKT DETAILS:\nVon: {{from}}\nKanal: {{channel}}\nZeitstempel: {{timestamp}}\nWorkflow: {{workflow_path}}\n\n💬 NACHRICHT:\n{{content_preview}}\n\n🎯 AI ANALYSIS:\n{{#if contact_match.found}}✅ Bekannter Kunde: {{contact_match.contact_name}} ({{contact_match.company}}){{else}}🆕 Neuer Kontakt - Contact Match erforderlich{{/if}}\nAI Confidence: {{contact_match.confidence}}%\nProcessing Status: {{#if processing_complete}}✅ Complete{{else}}⚠️ Incomplete{{/if}}\n\n📋 GENERIERTE TASKS:\n{{#each tasks_generated}}\n• {{title}}\n  {{description}}\n  Zugewiesen: {{assigned_to}} | Priorität: {{priority}}\n  Fällig: {{due_date}}\n\n{{/each}}\n{{#if errors}}⚠️ FEHLER:\n{{#each errors}}• {{this}}\n{{/each}}\n{{/if}}\n═══════════════════════════════════\n\n🔗 SYSTEM LINKS:\n• Railway Orchestrator: https://my-langgraph-agent-production.up.railway.app\n• WeClapp CRM: https://cdtech.weclapp.com\n• Notification sent: {{#if notification_sent}}✅{{else}}❌{{/if}}\n\n-- \nC&D Technologies GmbH\nIntelligentes Lead Management System"
+      }
+    }
+  ],
+  
+  "zap_settings": {
+    "status": "on",
+    "name": "Railway AI → Email Notifications",
+    "folder": "C&D Lead Management",
+    "description": "Complete AI processing notifications for all channels"
+  },
+  
+  "sample_webhook_data": {
+    "timestamp": "2025-10-09T18:00:00Z",
+    "channel": "call",
+    "from": "+4928615551234",
+    "content_preview": "Guten Tag, ich bin Klaus Müller von der Baufirma Schmidt. Wir haben ein dringendes Problem...",
+    "success": true,
+    "workflow_path": "WEG_A",
+    "contact_match": {
+      "found": false,
+      "contact_id": null,
+      "contact_name": null,
+      "company": null,
+      "confidence": 0.0,
+      "source": "apify"
+    },
+    "ai_analysis": {
+      "intent": "service_request",
+      "urgency": "high",
+      "category": "repair"
+    },
+    "tasks_generated": [
+      {
+        "title": "Unbekannter Kontakt zuordnen: +4928615551234",
+        "description": "Neue call von unbekanntem Kontakt. Entscheidung über CRM-Aufnahme erforderlich.",
+        "assigned_to": "sales_team",
+        "priority": "medium",
+        "due_date": "2025-10-10T15:54:13.977239",
+        "task_type": "follow_up",
+        "contact_id": null
+      }
+    ],
+    "processing_complete": true,
+    "notification_sent": true,
+    "recipients": ["mj@cdtechnologies.de", "info@cdtechnologies.de"],
+    "subject": "🤖 C&D AI System: CALL von +4928615551234",
+    "summary": "AI hat 1 Tasks erstellt"
+  }
+}
