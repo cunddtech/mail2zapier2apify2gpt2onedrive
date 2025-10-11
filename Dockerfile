@@ -7,4 +7,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["python3", "-m", "src.main"]
+# Start the production LangGraph orchestrator
+CMD ["python3", "production_langgraph_orchestrator.py"]
