@@ -446,64 +446,72 @@ Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
         """Search contact in WeClapp CRM"""
         
         if not self.weclapp_api_token:
+            logger.warning("⚠️ WeClapp API token not configured")
             return ContactMatch(found=False, source="weclapp_unavailable")
         
         try:
-            # WeClapp API Call with email filter
+            logger.info(f"🔎 Searching WeClapp for: {contact_identifier} (domain: {self.weclapp_domain})")
+            
+            # WeClapp API Call - get all contacts and search locally (more reliable)
             headers = {
                 "AuthenticationToken": self.weclapp_api_token,
-                "Content-Type": "application/json",
                 "Accept": "application/json"
             }
             
-            # Search by email with filter
-            # WeClapp filter format: email-eq-{email}
-            email_filter = f"email-eq-{contact_identifier}"
+            # Get recent contacts (pageSize 100 for better coverage)
             search_params = {
                 "serializationConfiguration": "IGNORE_EMPTY",
-                "pageSize": 10,
-                "email": contact_identifier  # Direct email search
+                "pageSize": 100
             }
             
             url = f"https://{self.weclapp_domain}.weclapp.com/webapp/api/v1/contact"
+            logger.info(f"📞 WeClapp URL: {url}")
             
             async with aiohttp.ClientSession() as session:
-                # Try direct email search first
                 async with session.get(url, headers=headers, params=search_params) as response:
+                    logger.info(f"📬 WeClapp Response Status: {response.status}")
+                    
                     if response.status == 200:
                         data = await response.json()
-                        
-                        # Check if any contacts were found
                         contacts = data.get("result", [])
-                        if contacts:
-                            for contact in contacts:
-                                # Exact email match
-                                if contact.get("email", "").lower() == contact_identifier.lower():
-                                    return ContactMatch(
-                                        found=True,
-                                        contact_id=str(contact.get("id")),
-                                        contact_name=f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip(),
-                                        company=contact.get("company", {}).get("name") if contact.get("company") else None,
-                                        confidence=1.0,  # Exact match
-                                        source="weclapp"
-                                    )
+                        logger.info(f"📊 Retrieved {len(contacts)} contacts from WeClapp")
                         
-                        # If no exact match, check for partial matches
+                        # Search through contacts for email match
                         for contact in contacts:
-                            if contact_identifier.lower() in contact.get("email", "").lower():
+                            contact_email = contact.get("email", "").lower()
+                            
+                            # Exact email match
+                            if contact_email == contact_identifier.lower():
+                                logger.info(f"✅ EXACT MATCH FOUND: {contact.get('firstName')} {contact.get('lastName')} ({contact_email})")
                                 return ContactMatch(
                                     found=True,
                                     contact_id=str(contact.get("id")),
                                     contact_name=f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip(),
                                     company=contact.get("company", {}).get("name") if contact.get("company") else None,
-                                    confidence=0.8,  # Partial match
+                                    confidence=1.0,
                                     source="weclapp"
                                 )
+                            
+                            # Partial email match
+                            elif contact_identifier.lower() in contact_email:
+                                logger.info(f"✅ PARTIAL MATCH FOUND: {contact.get('firstName')} {contact.get('lastName')} ({contact_email})")
+                                return ContactMatch(
+                                    found=True,
+                                    contact_id=str(contact.get("id")),
+                                    contact_name=f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip(),
+                                    company=contact.get("company", {}).get("name") if contact.get("company") else None,
+                                    confidence=0.8,
+                                    source="weclapp"
+                                )
+                        
+                        logger.warning(f"❌ No match found for '{contact_identifier}' in {len(contacts)} contacts")
+                    else:
+                        logger.error(f"❌ WeClapp API returned status {response.status}")
             
             return ContactMatch(found=False, source="weclapp")
             
         except Exception as e:
-            logger.error(f"WeClapp search error: {e}")
+            logger.error(f"❌ WeClapp search exception: {e}")
             return ContactMatch(found=False, source="weclapp_error")
     
     async def _search_apify_contact(self, contact_identifier: str) -> ContactMatch:
