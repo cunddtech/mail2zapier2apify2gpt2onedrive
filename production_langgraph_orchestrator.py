@@ -69,7 +69,7 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
     ENHANCED: Spezielle Behandlung für unbekannte Kontakte
     """
     
-    ZAPIER_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/17762912/2xh8rlk/"
+    ZAPIER_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/17762912/u5ilur9/"
     
     contact_match = processing_result.get("contact_match", {})
     contact_found = contact_match.get("found", False)
