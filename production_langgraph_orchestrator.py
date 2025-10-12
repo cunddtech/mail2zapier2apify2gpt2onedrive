@@ -547,7 +547,7 @@ Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
                         contacts = data.get("result", [])
                         logger.info(f"📊 Retrieved {len(contacts)} contacts from WeClapp")
                         
-                        # Search through contacts for email match
+                        # Search through contacts for email match - ONLY EXACT MATCHES
                         for contact in contacts:
                             contact_email = contact.get("email", "").lower()
                             
@@ -560,18 +560,6 @@ Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
                                     contact_name=f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip(),
                                     company=contact.get("company", {}).get("name") if contact.get("company") else None,
                                     confidence=1.0,
-                                    source="weclapp"
-                                )
-                            
-                            # Partial email match
-                            elif contact_identifier.lower() in contact_email:
-                                logger.info(f"✅ PARTIAL MATCH FOUND: {contact.get('firstName')} {contact.get('lastName')} ({contact_email})")
-                                return ContactMatch(
-                                    found=True,
-                                    contact_id=str(contact.get("id")),
-                                    contact_name=f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip(),
-                                    company=contact.get("company", {}).get("name") if contact.get("company") else None,
-                                    confidence=0.8,
                                     source="weclapp"
                                 )
                         
