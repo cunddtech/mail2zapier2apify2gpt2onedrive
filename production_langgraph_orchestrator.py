@@ -74,45 +74,46 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
     contact_match = processing_result.get("contact_match", {})
     contact_found = contact_match.get("found", False)
     
-    # 🆕 ENHANCED: Unknown Contact Notification
+    # 🆕 ENHANCED: Unknown Contact Notification (Zapier-compatible format)
     if not contact_found:
         notification_data = {
             "notification_type": "unknown_contact_action_required",
-            "timestamp": datetime.now().isoformat(),
-            "channel": message_type,
-            "from": from_contact,
-            "from_name": processing_result.get("sender_name", "Unbekannt"),
-            "content_preview": content[:500] + "..." if len(content) > 500 else content,
-            "full_content": content,
+            "email_id": f"railway-{datetime.now().timestamp()}",
+            "sender": from_contact,
+            "sender_name": processing_result.get("sender_name", "Unbekannt"),
+            "subject": f"{message_type.upper()}: {content[:100]}",
+            "body_preview": content[:500] + "..." if len(content) > 500 else content,
+            "received_time": datetime.now().isoformat(),
             
-            # AI Analysis
+            # AI Analysis (flattened for Zapier)
             "ai_analysis": processing_result.get("ai_analysis", {}),
             
-            # Action Required
-            "action_required": {
-                "title": "🆕 UNBEKANNTER KONTAKT - AKTION ERFORDERLICH",
-                "description": f"Eine neue {message_type} von einem unbekannten Kontakt ist eingegangen.",
-                "options": [
-                    "✅ Kontakt im CRM anlegen",
-                    "🏠 Als privat markieren", 
-                    "🚫 Als Spam markieren",
-                    "❓ Weitere Informationen einholen"
-                ]
-            },
+            # Action Options (flat array for Zapier)
+            "action_options": [
+                {
+                    "action": "create_contact",
+                    "label": "KONTAKT ANLEGEN",
+                    "description": "Als neuen Kontakt in WeClapp anlegen"
+                },
+                {
+                    "action": "mark_private",
+                    "label": "PRIVAT MARKIEREN",
+                    "description": "Als private Anfrage markieren (kein CRM-Eintrag)"
+                },
+                {
+                    "action": "mark_spam",
+                    "label": "SPAM MARKIEREN",
+                    "description": "Als Spam markieren und blockieren"
+                },
+                {
+                    "action": "request_info",
+                    "label": "INFO ANFORDERN",
+                    "description": "Mehr Informationen vom Absender anfordern"
+                }
+            ],
             
-            # Contact Suggestions
-            "contact_suggestions": {
-                "email": from_contact,
-                "name": processing_result.get("sender_name", ""),
-                "potential_company": _extract_company_from_email(from_contact),
-                "suggested_type": _suggest_contact_type(processing_result)
-            },
-            
-            # Email Configuration
-            "recipients": ["mj@cdtechnologies.de"],
-            "subject": f"🆕 UNBEKANNTER KONTAKT: {from_contact} - Aktion erforderlich",
-            "priority": "high",
-            "summary": f"Unbekannter Kontakt benötigt Ihre Entscheidung"
+            "responsible_employee": "mj@cdtechnologies.de",
+            "webhook_reply_url": "https://my-langgraph-agent-production.up.railway.app/webhook/contact-action"
         }
         
         logger.info(f"⚠️ Sending UNKNOWN CONTACT notification for {from_contact}")
