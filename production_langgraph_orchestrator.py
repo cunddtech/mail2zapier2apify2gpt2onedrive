@@ -45,6 +45,11 @@ import uvicorn
 import aiohttp
 import logging
 
+# SQLite Database für Contact Cache
+import sqlite3
+import asyncio
+from contextlib import asynccontextmanager
+
 # Logging Setup
 logging.basicConfig(
     level=logging.INFO,
@@ -178,6 +183,144 @@ def _suggest_contact_type(processing_result: Dict[str, Any]) -> str:
         return "prospect"
 
 # ===============================
+# SQLITE CONTACT CACHE LAYER
+# ===============================
+
+DB_PATH = os.getenv("DATABASE_PATH", "./contact_cache.db")
+
+def initialize_contact_cache():
+    """
+    🗄️ SQLITE CONTACT CACHE - Performance Layer
+    
+    Initialisiert die Contact Cache Datenbank.
+    MASTER PLAN: Erste Anlaufstelle vor WeClapp API Call!
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS contact_cache (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT UNIQUE NOT NULL,
+        weclapp_contact_id TEXT,
+        weclapp_customer_id TEXT,
+        contact_name TEXT,
+        company_name TEXT,
+        phone TEXT,
+        last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        cache_hits INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    
+    # Index für schnelle Email-Lookups
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_email ON contact_cache(email)
+    """)
+    
+    conn.commit()
+    conn.close()
+    logger.info("✅ Contact Cache initialized")
+
+
+async def lookup_contact_in_cache(email: str) -> Optional[Dict[str, Any]]:
+    """
+    🔍 STEP 1: Cache Lookup (Sub-Second Performance)
+    
+    Sucht Kontakt zuerst im lokalen SQLite Cache.
+    Nur bei Cache Miss wird WeClapp API aufgerufen.
+    """
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, _sync_lookup_contact, email)
+        
+        if result:
+            logger.info(f"✅ CACHE HIT for {email} - Contact ID: {result['weclapp_contact_id']}")
+            return result
+        else:
+            logger.info(f"⚠️ CACHE MISS for {email} - Will query WeClapp")
+            return None
+            
+    except Exception as e:
+        logger.error(f"❌ Cache lookup error: {e}")
+        return None
+
+
+def _sync_lookup_contact(email: str) -> Optional[Dict[str, Any]]:
+    """Synchronous SQLite lookup (runs in executor)"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+    SELECT weclapp_contact_id, weclapp_customer_id, contact_name, company_name, phone, cache_hits
+    FROM contact_cache
+    WHERE email = ?
+    """, (email.lower(),))
+    
+    row = cursor.fetchone()
+    
+    if row:
+        # Update cache hit counter
+        cursor.execute("""
+        UPDATE contact_cache 
+        SET cache_hits = cache_hits + 1, last_seen = CURRENT_TIMESTAMP
+        WHERE email = ?
+        """, (email.lower(),))
+        conn.commit()
+        
+        result = {
+            "found": True,
+            "source": "cache",
+            "weclapp_contact_id": row[0],
+            "weclapp_customer_id": row[1],
+            "contact_name": row[2],
+            "company_name": row[3],
+            "phone": row[4],
+            "cache_hits": row[5] + 1
+        }
+        conn.close()
+        return result
+    
+    conn.close()
+    return None
+
+
+async def cache_contact(email: str, weclapp_data: Dict[str, Any]):
+    """
+    💾 STEP 2: Cache Write-Back nach WeClapp Lookup
+    
+    Speichert WeClapp Contact in lokalem Cache für zukünftige Lookups.
+    """
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _sync_cache_contact, email, weclapp_data)
+        logger.info(f"✅ Contact cached: {email} → {weclapp_data.get('weclapp_contact_id')}")
+    except Exception as e:
+        logger.error(f"❌ Cache write error: {e}")
+
+
+def _sync_cache_contact(email: str, weclapp_data: Dict[str, Any]):
+    """Synchronous SQLite write (runs in executor)"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+    INSERT OR REPLACE INTO contact_cache 
+    (email, weclapp_contact_id, weclapp_customer_id, contact_name, company_name, phone, last_seen)
+    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    """, (
+        email.lower(),
+        weclapp_data.get("weclapp_contact_id"),
+        weclapp_data.get("weclapp_customer_id"),
+        weclapp_data.get("contact_name"),
+        weclapp_data.get("company_name"),
+        weclapp_data.get("phone")
+    ))
+    
+    conn.commit()
+    conn.close()
+
+# ===============================
 # LANGRAPH STATE DEFINITIONS
 # ===============================
 
@@ -210,7 +353,8 @@ class ContactMatch:
     contact_name: Optional[str] = None
     company: Optional[str] = None
     confidence: float = 0.0
-    source: Optional[str] = None  # "weclapp", "apify", "manual"
+    source: Optional[str] = None  # "cache", "weclapp", "apify", "manual"
+    cache_hits: int = 0  # How many times this contact was found in cache
 
 @dataclass
 class AITask:
@@ -514,14 +658,34 @@ Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
     # ===============================
     
     async def _search_weclapp_contact(self, contact_identifier: str) -> ContactMatch:
-        """Search contact in WeClapp CRM"""
+        """
+        🔍 ENHANCED: Two-Tier Contact Lookup (MASTER PLAN)
         
+        STEP 1: SQLite Cache (Sub-Second)
+        STEP 2: WeClapp API (only on Cache Miss)
+        """
+        
+        # STEP 1: Check SQLite Cache first
+        cached_contact = await lookup_contact_in_cache(contact_identifier)
+        
+        if cached_contact:
+            return ContactMatch(
+                found=True,
+                contact_id=cached_contact["weclapp_contact_id"],
+                contact_name=cached_contact["contact_name"],
+                company=cached_contact.get("company_name"),
+                confidence=1.0,
+                source="cache",
+                cache_hits=cached_contact.get("cache_hits", 0)
+            )
+        
+        # STEP 2: Cache Miss - Query WeClapp API
         if not self.weclapp_api_token:
             logger.warning("⚠️ WeClapp API token not configured")
             return ContactMatch(found=False, source="weclapp_unavailable")
         
         try:
-            logger.info(f"🔎 Searching WeClapp for: {contact_identifier} (domain: {self.weclapp_domain})")
+            logger.info(f"🔎 Cache Miss - Querying WeClapp for: {contact_identifier}")
             
             # WeClapp API Call - get all contacts and search locally (more reliable)
             headers = {
@@ -553,12 +717,25 @@ Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
                             
                             # Exact email match
                             if contact_email == contact_identifier.lower():
-                                logger.info(f"✅ EXACT MATCH FOUND: {contact.get('firstName')} {contact.get('lastName')} ({contact_email})")
+                                contact_name = f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip()
+                                company_name = contact.get("company", {}).get("name") if contact.get("company") else None
+                                
+                                logger.info(f"✅ EXACT MATCH FOUND in WeClapp: {contact_name} ({contact_email})")
+                                
+                                # STEP 3: Cache the result for future lookups
+                                await cache_contact(contact_identifier, {
+                                    "weclapp_contact_id": str(contact.get("id")),
+                                    "weclapp_customer_id": str(contact.get("customerId")) if contact.get("customerId") else None,
+                                    "contact_name": contact_name,
+                                    "company_name": company_name,
+                                    "phone": contact.get("phone")
+                                })
+                                
                                 return ContactMatch(
                                     found=True,
                                     contact_id=str(contact.get("id")),
-                                    contact_name=f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip(),
-                                    company=contact.get("company", {}).get("name") if contact.get("company") else None,
+                                    contact_name=contact_name,
+                                    company=company_name,
                                     confidence=1.0,
                                     source="weclapp"
                                 )
@@ -790,6 +967,9 @@ Antworten Sie mit den erforderlichen Kontakt-Details oder markieren Sie als "Pri
 # ===============================
 # FASTAPI PRODUCTION SERVER
 # ===============================
+
+# Initialize SQLite Contact Cache
+initialize_contact_cache()
 
 # Initialize Orchestrator
 orchestrator = ProductionAIOrchestrator()
