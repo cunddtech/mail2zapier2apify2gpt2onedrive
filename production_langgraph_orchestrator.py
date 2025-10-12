@@ -693,20 +693,21 @@ Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
         try:
             logger.info(f"🔎 Cache Miss - Querying WeClapp for: {contact_identifier}")
             
-            # WeClapp API Call - get all contacts and search locally (more reliable)
+            # WeClapp API Call with EMAIL FILTER for exact match
             headers = {
                 "AuthenticationToken": self.weclapp_api_token,
                 "Accept": "application/json"
             }
             
-            # Get recent contacts (pageSize 100 for better coverage)
+            # Filter by exact email match using WeClapp API
             search_params = {
+                "email-eq": contact_identifier.lower(),
                 "serializationConfiguration": "IGNORE_EMPTY",
-                "pageSize": 100
+                "pageSize": 1  # Only need 1 result for exact match
             }
             
             url = f"https://{self.weclapp_domain}.weclapp.com/webapp/api/v1/contact"
-            logger.info(f"📞 WeClapp URL: {url}")
+            logger.info(f"📞 WeClapp URL: {url}?email-eq={contact_identifier}")
             
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=headers, params=search_params) as response:
@@ -715,42 +716,34 @@ Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
                     if response.status == 200:
                         data = await response.json()
                         contacts = data.get("result", [])
-                        logger.info(f"📊 Retrieved {len(contacts)} contacts from WeClapp")
                         
-                        # Search through contacts for email match - ONLY EXACT MATCHES
-                        for contact in contacts:
-                            contact_email = contact.get("email", "").lower()
+                        if len(contacts) > 0:
+                            # Exact match found via WeClapp email filter
+                            contact = contacts[0]
+                            contact_name = f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip()
+                            company_name = contact.get("company", {}).get("name") if contact.get("company") else None
                             
-                            # DEBUG: Log first 5 contacts
-                            if contacts.index(contact) < 5:
-                                logger.info(f"🔍 DEBUG Contact {contacts.index(contact) + 1}: {contact.get('firstName', '')} {contact.get('lastName', '')} - Email: {contact_email}")
+                            logger.info(f"✅ EXACT MATCH FOUND in WeClapp: {contact_name} (ID: {contact.get('id')})")
                             
-                            # Exact email match
-                            if contact_email == contact_identifier.lower():
-                                contact_name = f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip()
-                                company_name = contact.get("company", {}).get("name") if contact.get("company") else None
-                                
-                                logger.info(f"✅ EXACT MATCH FOUND in WeClapp: {contact_name} ({contact_email})")
-                                
-                                # STEP 3: Cache the result for future lookups
-                                await cache_contact(contact_identifier, {
-                                    "weclapp_contact_id": str(contact.get("id")),
-                                    "weclapp_customer_id": str(contact.get("customerId")) if contact.get("customerId") else None,
-                                    "contact_name": contact_name,
-                                    "company_name": company_name,
-                                    "phone": contact.get("phone")
-                                })
-                                
-                                return ContactMatch(
-                                    found=True,
-                                    contact_id=str(contact.get("id")),
-                                    contact_name=contact_name,
-                                    company=company_name,
-                                    confidence=1.0,
-                                    source="weclapp"
-                                )
-                        
-                        logger.warning(f"❌ No match found for '{contact_identifier}' in {len(contacts)} contacts")
+                            # STEP 3: Cache the result for future lookups
+                            await cache_contact(contact_identifier, {
+                                "weclapp_contact_id": str(contact.get("id")),
+                                "weclapp_customer_id": str(contact.get("customerId")) if contact.get("customerId") else None,
+                                "contact_name": contact_name,
+                                "company_name": company_name,
+                                "phone": contact.get("phone")
+                            })
+                            
+                            return ContactMatch(
+                                found=True,
+                                contact_id=str(contact.get("id")),
+                                contact_name=contact_name,
+                                company=company_name,
+                                confidence=1.0,
+                                source="weclapp"
+                            )
+                        else:
+                            logger.warning(f"❌ No match found in WeClapp for: {contact_identifier}")
                     else:
                         logger.error(f"❌ WeClapp API returned status {response.status}")
             
