@@ -458,14 +458,18 @@ class ProductionAIOrchestrator:
             else:
                 contact_match = weclapp_match
             
-            # Update state
+            # Ensure contact_match is valid
+            if contact_match is None:
+                raise ValueError("Contact search returned None")
+            
+            # Update state with safe attribute access
             state["contact_match"] = {
-                "found": contact_match.found,
-                "contact_id": contact_match.contact_id,
-                "contact_name": contact_match.contact_name,
-                "company": contact_match.company,
-                "confidence": contact_match.confidence,
-                "source": contact_match.source
+                "found": getattr(contact_match, "found", False),
+                "contact_id": getattr(contact_match, "contact_id", None),
+                "contact_name": getattr(contact_match, "contact_name", None),
+                "company": getattr(contact_match, "company", None),
+                "confidence": getattr(contact_match, "confidence", 0.0),
+                "source": getattr(contact_match, "source", "unknown")
             }
             
             logger.info(f"✅ Contact match result: {contact_match.found} ({contact_match.source})")
