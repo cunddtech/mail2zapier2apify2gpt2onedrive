@@ -715,6 +715,10 @@ Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
                         for contact in contacts:
                             contact_email = contact.get("email", "").lower()
                             
+                            # DEBUG: Log first 5 contacts
+                            if contacts.index(contact) < 5:
+                                logger.info(f"🔍 DEBUG Contact {contacts.index(contact) + 1}: {contact.get('firstName', '')} {contact.get('lastName', '')} - Email: {contact_email}")
+                            
                             # Exact email match
                             if contact_email == contact_identifier.lower():
                                 contact_name = f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip()
