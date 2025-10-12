@@ -1072,7 +1072,7 @@ async def process_whatsapp(request: Request):
         # ⚠️ SECURITY: Never expose internal error details to client
         raise HTTPException(status_code=500, detail="Internal server error during WhatsApp processing")
 
-@app.post("/webhook/contact-action")
+@app.api_route("/webhook/contact-action", methods=["GET", "POST"])
 async def handle_contact_action(request: Request):
     """
     🎯 MITARBEITER-AKTIONEN für unbekannte Kontakte
@@ -1082,17 +1082,28 @@ async def handle_contact_action(request: Request):
     - mark_private: Custom Attribute "private_contact"
     - mark_spam: Custom Attribute "spam_contact"
     - request_info: POST /crmEvent (Rückfrage dokumentieren)
+    
+    Akzeptiert GET (Query Params) und POST (JSON Body)
     """
     
     try:
-        data = await request.json()
-        
-        action = data.get("action")  # create_contact, mark_private, mark_spam, request_info
-        contact_email = data.get("contact_email")
-        contact_data = data.get("contact_data", {})  # Optional: name, company, phone
+        # Support both GET and POST
+        if request.method == "GET":
+            # GET: Extract from query parameters
+            action = request.query_params.get("action")
+            contact_email = request.query_params.get("sender")  # From email link
+            email_id = request.query_params.get("email_id")
+            contact_data = {}  # Optional: Could parse from query params
+        else:
+            # POST: Extract from JSON body
+            data = await request.json()
+            action = data.get("action")
+            contact_email = data.get("contact_email") or data.get("sender")
+            email_id = data.get("email_id")
+            contact_data = data.get("contact_data", {})
         
         if not action or not contact_email:
-            raise HTTPException(status_code=400, detail="action and contact_email required")
+            raise HTTPException(status_code=400, detail="action and contact_email/sender required")
         
         logger.info(f"📋 Contact Action received: {action} for {contact_email}")
         
