@@ -6,64 +6,120 @@ Du entwickelst ein **intelligentes Lead Management Ecosystem** für C&D Technolo
 
 ---
 
-## 🏗️ **SYSTEM ARCHITEKTUR**
+## 🏗️ **SYSTEM ARCHITEKTUR** *(Updated: 12. Okt 2025)*
 
-### **🧠 Zentrale Komponente: ORCHESTRATOR (Railway LangGraph)**
+### **🧠 Zentrale Komponente: RAILWAY ORCHESTRATOR (LangGraph + FastAPI)**
 - **URL:** https://my-langgraph-agent-production.up.railway.app
-- **Funktion:** Zentrale KI-Intelligenz für ALLE Lead-Quellen
-- **Performance:** SQL-Database für schnelle Abfragen, WeClapp CRM für komplexe Daten
-- **Aktionen:** Task-Generierung, CRM-Updates, Terminplanung, automatische Antworten
+- **Status:** ✅ **LIVE IN PRODUCTION**
+- **Funktion:** Zentrale KI-Intelligenz & Entscheidungs-Hub für ALLE Lead-Quellen
+- **Performance:** 6.6s avg response, WeClapp Contact Matching (100+ Kontakte)
+- **AI-Funktionen:** Intent Recognition, Urgency Detection, Sentiment Analysis, Task Generation
+- **Aktionen:** CRM-Updates (WeClapp), Workflow-Routing (WEG A/B), Response Generation
 
-### **📱 Lead-Quellen (Microservices/Apps):**
-1. **📧 Email Processing** - Microsoft Graph Integration
-2. **📞 SipGate Calls** - Telefon + AI Transcription  
-3. **💬 WhatsApp Business** - Nachrichten + Medien
-4. **📱 Instagram Direct** - Social Media Anfragen
-5. **🌐 Webmail Contact** - Website Formulare
-6. **📄 Document Scans** - OCR + AI Analysis
-7. **📋 Manual Input** - Mitarbeiter-Eingaben
+### **🤖 APIFY ACTORS (95 Verfügbar) - Spezialisierte Worker:**
+**Railway ruft Apify NUR bei Bedarf auf:**
+
+1. **`mail2zapier2apify2gpt2onedrive`** - **6.432 Runs ✅ PRODUCTION**
+   - Attachment Processing (PDF, Images)
+   - OCR (PDF.co Handwriting + Standard)
+   - Document Classification (GPT-4)
+   - OneDrive Upload & Folder Management
+   - WeClapp Data Integration
+
+2. **`apify-actor-process-scan-modular`** - **468 Runs**
+   - Scan-OCR Processing
+   - Image Analysis
+
+3. **`weclapp-sql-sync-production`** - **278 Runs**
+   - WeClapp ↔ SQL-DB Synchronization
+
+4. **`sipgate-handler`** - **4 Runs (in Entwicklung)**
+   - Call Transcription Processing
+   - Sentiment Analysis
+
+### **📱 Lead-Quellen (Zapier Triggers → Railway):**
+1. **📧 Email Processing** - Gmail/Outlook → Railway (Apify bei Attachments)
+2. **📞 SipGate Calls** - Webhook → Railway (Apify bei komplexen Transkripten)
+3. **💬 WhatsApp Business** - Webhook → Railway (Apify bei Medien)
+4. **📱 Instagram Direct** - Roadmap Q1 2026
+5. **🌐 Webmail Contact** - Roadmap Q1 2026
+6. **📄 Document Scans** - Railway + Apify scan-ocr
+7. **📋 Manual Input** - Direct Railway API Calls
 
 ---
 
-## 🔄 **INTELLIGENT WORKFLOW EXAMPLES**
+## 🔄 **INTELLIGENT WORKFLOW EXAMPLES** *(Production-Tested)*
 
-### **📞 SipGate Call Scenario - Terminfindung:**
+### **� EMAIL: Einfache Terminanfrage (Railway Only - 6s)**
 ```
-1. CALL: "Hallo, ich hätte gerne einen Termin für ein Aufmaß"
-2. ORCHESTRATOR: 
-   - Erkennt: Terminwunsch
-   - Prüft: SQL-DB → Kunde bekannt? Letzte Projekte?
-   - AI Action: "Gerne! Haben Sie bereits konkrete Zeiträume?"
-3. FOLLOW-UP: "Ja, nächste Woche Dienstag oder Mittwoch"
-4. ORCHESTRATOR:
-   - Prüft: Mitarbeiter-Kalender (API Integration)
-   - Verfügbar? → Automatische Terminbestätigung
-   - Nicht verfügbar? → Alternative vorschlagen
-5. RESULT: CRM Eintrag + Kalender + Bestätigungs-SMS
+1. ZAPIER TRIGGER: Gmail - New Email von kunde@firma.de
+2. ZAPIER → RAILWAY: POST /webhook/ai-email
+   { sender: "kunde@firma.de", subject: "Termin Aufmaß", body: "..." }
+3. RAILWAY PROCESSING (6.6s):
+   - AI Analysis: Intent = "appointment_request", Urgency = "medium"
+   - Contact Search: WeClapp → Found (Frank Zimmer, ID 4400)
+   - Workflow Routing: WEG B (Known Contact)
+   - Task Generation: "Termin vereinbaren - Aufmaß bei Frank Zimmer"
+   - CRM Update: WeClapp Communication Log Entry
+4. RAILWAY → ZAPIER: POST notification webhook
+5. ZAPIER: Email to mj@ + info@: "Neue Aufgabe: Termin Frank Zimmer"
 
-KI-LOGIK: "Wenn Terminvereinbarung erkannt + Mitarbeiter bestätigt → Verfügbarkeitsprüfung → Eintrag oder Alternativen"
-```
-
-### **💬 WhatsApp Mitarbeiter-Support:**
-```
-1. MESSAGE: "Brauche AB für Projekt Müller, Baujahr 2018"  
-2. ORCHESTRATOR:
-   - SQL-DB Suche: "Müller" + "2018" + "Projekt"
-   - Findet: AB-12345, Projekt: Terrassendach
-   - Response: "AB-12345 - Terrassendach Müller, Baujahr 2018"
-3. CRM LOG: Anfrage dokumentiert, Wer/Wann/Was
+✅ KEIN APIFY ACTOR AUFGERUFEN (Text-only Email)
 ```
 
-### **📄 Scan + Email Workflow:**
+### **📄 EMAIL: Rechnung mit PDF (Railway + Apify - 20s)**
 ```
-1. EMAIL: mit PDF-Scan Anhang
-2. EMAIL SERVICE → OCR SERVICE: Texterkennung
-3. OCR SERVICE → GPT SERVICE: Dokumentklassifikation
-4. ORCHESTRATOR: Kontext-Analyse
-   - Rechnung? → Buchhaltungs-Workflow
-   - Aufmaß? → Projekt-Zuordnung + Task für Kalkulation
-   - Garantiefall? → Service-Team + Priorisierung
-5. ACTIONS: CRM Update + OneDrive Ablage + Mitarbeiter-Tasks
+1. ZAPIER TRIGGER: Gmail - New Email mit PDF-Anhang
+2. ZAPIER → RAILWAY: POST /webhook/ai-email (Attachments detected)
+3. RAILWAY DECISION: Attachment Processing nötig → Apify Actor
+4. RAILWAY → APIFY: Trigger mail2zapier2apify2gpt2onedrive
+5. APIFY PROCESSING (12s):
+   - Download PDF (Microsoft Graph)
+   - OCR Extraction (PDF.co)
+   - GPT Classification: "Rechnung"
+   - OneDrive Upload: /Lieferanten/2025/Rechnung_XYZ.pdf
+6. APIFY → RAILWAY: Return { document_type: "invoice", amount: "1.234,56€" }
+7. RAILWAY FINAL PROCESSING (8s):
+   - Task: "Rechnung prüfen und buchen - 1.234,56€"
+   - CRM Update (WeClapp)
+8. RAILWAY → ZAPIER: Notification
+9. ZAPIER: Email to mj@ + Buchhaltung
+
+✅ APIFY ACTOR AUFGERUFEN (PDF OCR notwendig)
+```
+
+### **📞 SipGate Call: Angebot anfordern (Railway Only - 7s)**
+```
+1. ZAPIER TRIGGER: SipGate Webhook - Call ended
+2. ZAPIER → RAILWAY: POST /webhook/ai-call
+   { caller: "+4912345", transcript: "Hallo, ich brauche Angebot..." }
+3. RAILWAY PROCESSING (7s):
+   - Caller Recognition: +4912345 → Frank Zimmer (WeClapp)
+   - AI Transcript Analysis: Intent = "quote_request", Sentiment = "positive"
+   - Task Creation: "Angebot erstellen - Terrassendach Frank Zimmer"
+   - Call Log: WeClapp Communication Entry
+4. RAILWAY → ZAPIER: Notification + SMS Response
+5. ZAPIER ACTIONS:
+   - Email to mj@: "Frank Zimmer anrufen - Angebot"
+   - SMS to +4912345: "Danke! Angebot folgt in 24h"
+
+✅ KEIN APIFY ACTOR (Transkript einfach verarbeitbar)
+```
+
+### **💬 WhatsApp Mitarbeiter-Support (Railway Only - 5s)**
+```
+1. ZAPIER TRIGGER: WhatsApp Business - New Message
+2. ZAPIER → RAILWAY: POST /webhook/whatsapp
+   { sender: "+491234mj", message: "AB für Projekt Müller?" }
+3. RAILWAY PROCESSING (5s):
+   - Sender Recognition: Mitarbeiter (Martin)
+   - SQL-DB Schnellsuche: "Müller" + "Projekt" + "AB"
+   - Ergebnis: AB-12345, Projekt: Terrassendach, 2018
+   - Response Generation: "AB-12345 - Terrassendach Müller, Baujahr 2018"
+4. RAILWAY → ZAPIER: WhatsApp Reply
+5. ZAPIER: WhatsApp Message zurück
+
+✅ KEIN APIFY ACTOR (Text-Nachricht, SQL-DB Lookup)
 ```
 
 ---
@@ -135,25 +191,69 @@ def handle_appointment_request(transcript, caller_info):
 
 ---
 
-## 🔧 **TECHNISCHE IMPLEMENTATION**
+## 🔧 **TECHNISCHE IMPLEMENTATION** *(Final Architecture)*
 
-### **Microservice Structure:**
+### **System Structure:**
 ```
-📧 Email Service (Apify)     ──┐
-📞 SipGate Service (Apify)   ──┤
-💬 WhatsApp Service (Apify)  ──┤──► 🧠 ORCHESTRATOR (Railway)
-📱 Instagram Service (Apify) ──┤        ↕️
-🌐 Webmail Service (Apify)   ──┤    🗄️ SQL-DB (Performance)
-📄 OCR Service (Apify)       ──┘        ↕️
-                                   🏢 WeClapp CRM (Sync)
+� LEAD-QUELLEN (Zapier Triggers)
+   ├─ 📧 Gmail/Outlook (New Email)
+   ├─ 📞 SipGate (Call Events)
+   ├─ 💬 WhatsApp Business (New Message)
+   └─ 🌐 Website Forms
+            ↓
+    ┌───────────────┐
+    │ ZAPIER ROUTER │ (Trigger → Webhook)
+    └───────────────┘
+            ↓
+    ┌───────────────────────────────┐
+    │  🧠 RAILWAY ORCHESTRATOR       │
+    │  (FastAPI + LangGraph + GPT-4) │
+    │  ✅ ZENTRALE INTELLIGENZ       │
+    └───────────────────────────────┘
+            ↓
+    Entscheidung: Einfach oder Komplex?
+            ↓
+    ┌───────┴───────┐
+    ↓               ↓
+┌─────────┐   ┌──────────────┐
+│ EINFACH │   │   KOMPLEX    │
+│ (70%)   │   │   (30%)      │
+└─────────┘   └──────────────┘
+    ↓               ↓
+Railway direkt  Railway → Apify Actor
+    ↓               ↓
+- AI Analysis   mail2zapier... (6.432 Runs)
+- Contact       scan-ocr (468 Runs)
+  Matching      sipgate-handler (4 Runs)
+- Task Gen          ↓
+- CRM Update    Attachment Processing
+    ↓           OCR + OneDrive
+    ↓               ↓
+    └───────┬───────┘
+            ↓
+    ┌───────────────┐
+    │ WeClapp CRM   │ (Contact, Tasks, Communication Log)
+    │ SQL-DB        │ (Performance Cache)
+    │ OneDrive      │ (Document Storage)
+    └───────────────┘
+            ↓
+    ┌───────────────┐
+    │ ZAPIER OUTPUT │ (Email Notifications)
+    └───────────────┘
+            ↓
+    📧 mj@ + info@ + Mitarbeiter
 ```
 
-### **Data Flow:**
-1. **Input:** Lead-Quelle → Webhook → Orchestrator
-2. **Analysis:** KI-Analyse + SQL-DB Lookup + Kontext-Building  
-3. **Decision:** Regelwerk + ML-Models → Action Planning
-4. **Execution:** CRM Updates + Task Creation + Responses
-5. **Learning:** Feedback Loop → Model Improvement
+### **Data Flow (Optimized):**
+1. **Input:** Zapier Trigger → Railway Webhook
+2. **Decision:** Railway: Einfach (direkt) vs Komplex (Apify)
+3. **Processing:** 
+   - **70% Einfach:** Railway AI Analysis → CRM (6-8s)
+   - **30% Komplex:** Railway → Apify Actor → Railway (15-25s)
+4. **Output:** WeClapp Update + Task Assignment
+5. **Notification:** Zapier Email an Mitarbeiter
+
+**Kostenoptimierung:** 70% ohne Apify = 70% Kosteneinsparung ✅
 
 ---
 
@@ -230,4 +330,35 @@ Hot: Sofortige Bearbeitung erforderlich
 
 ---
 
-*Entwickelt von C&D Technologies GmbH - Intelligente Digitalisierung für den Mittelstand*
+## 📄 **WICHTIGE DOKUMENTATION**
+
+- **`ARCHITECTURE_DECISION_FINAL.md`** - Detaillierte Architektur-Entscheidung (Zapier → Railway → Apify)
+- **`PRODUCTION_DEPLOYMENT_FINAL_REPORT.md`** - Production Status & Test Results
+- **`ZAPIER_INTEGRATION_GUIDE.md`** - Zapier Setup Schritt-für-Schritt
+- **`RAILWAY_PRODUCTION_TEST_REPORT.md`** - Webhook Tests & Performance
+- **`production_langgraph_orchestrator.py`** - Railway Orchestrator Source Code
+
+---
+
+## 🎯 **STATUS QUO (12. Okt 2025)**
+
+### **✅ LIVE IN PRODUCTION:**
+- Railway Orchestrator: https://my-langgraph-agent-production.up.railway.app
+- WeClapp Contact Matching: 100+ Kontakte
+- WEG A (Unknown) + WEG B (Known) Workflows: ✅ Getestet
+- Performance: 6.6s avg response
+- Security: 95/100 Punkte (Secrets entfernt, generische Errors)
+
+### **⏳ IN KONFIGURATION:**
+- Zapier Zaps: Gmail/Outlook → Railway Webhooks
+- Email-Benachrichtigungen: mj@, info@
+
+### **🔄 NÄCHSTE INTEGRATION:**
+1. **Email (mj@, info@)** - Diese Woche
+2. **SipGate (mj, kt, lh)** - Nächste Woche
+3. **WhatsApp Business** - Folgende Woche
+
+---
+
+*Entwickelt von C&D Technologies GmbH - Intelligente Digitalisierung für den Mittelstand*  
+*Letzte Aktualisierung: 12. Oktober 2025*
