@@ -61,32 +61,83 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
     🎯 FINAL ZAPIER NOTIFICATION - Email an Markus & Info
     
     Wird nach jedem erfolgreichen AI Processing aufgerufen
+    ENHANCED: Spezielle Behandlung für unbekannte Kontakte
     """
     
     ZAPIER_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/17762912/2xh8rlk/"
     
-    # Build notification payload
-    notification_data = {
-        "timestamp": datetime.now().isoformat(),
-        "channel": message_type,
-        "from": from_contact,
-        "content_preview": content[:200] + "..." if len(content) > 200 else content,
+    contact_match = processing_result.get("contact_match", {})
+    contact_found = contact_match.get("found", False)
+    
+    # 🆕 ENHANCED: Unknown Contact Notification
+    if not contact_found:
+        notification_data = {
+            "notification_type": "unknown_contact_action_required",
+            "timestamp": datetime.now().isoformat(),
+            "channel": message_type,
+            "from": from_contact,
+            "from_name": processing_result.get("sender_name", "Unbekannt"),
+            "content_preview": content[:500] + "..." if len(content) > 500 else content,
+            "full_content": content,
+            
+            # AI Analysis
+            "ai_analysis": processing_result.get("ai_analysis", {}),
+            
+            # Action Required
+            "action_required": {
+                "title": "🆕 UNBEKANNTER KONTAKT - AKTION ERFORDERLICH",
+                "description": f"Eine neue {message_type} von einem unbekannten Kontakt ist eingegangen.",
+                "options": [
+                    "✅ Kontakt im CRM anlegen",
+                    "🏠 Als privat markieren", 
+                    "🚫 Als Spam markieren",
+                    "❓ Weitere Informationen einholen"
+                ]
+            },
+            
+            # Contact Suggestions
+            "contact_suggestions": {
+                "email": from_contact,
+                "name": processing_result.get("sender_name", ""),
+                "potential_company": _extract_company_from_email(from_contact),
+                "suggested_type": _suggest_contact_type(processing_result)
+            },
+            
+            # Email Configuration
+            "recipients": ["mj@cdtechnologies.de"],
+            "subject": f"🆕 UNBEKANNTER KONTAKT: {from_contact} - Aktion erforderlich",
+            "priority": "high",
+            "summary": f"Unbekannter Kontakt benötigt Ihre Entscheidung"
+        }
         
-        # AI Processing Results
-        "success": processing_result.get("success", False),
-        "workflow_path": processing_result.get("workflow_path"),
-        "contact_match": processing_result.get("contact_match", {}),
-        "ai_analysis": processing_result.get("ai_analysis", {}),
-        "tasks_generated": processing_result.get("tasks_generated", []),
-        "processing_complete": processing_result.get("processing_complete", False),
+        logger.info(f"⚠️ Sending UNKNOWN CONTACT notification for {from_contact}")
+    
+    else:
+        # Standard Notification for known contacts
+        notification_data = {
+            "notification_type": "standard",
+            "timestamp": datetime.now().isoformat(),
+            "channel": message_type,
+            "from": from_contact,
+            "content_preview": content[:200] + "..." if len(content) > 200 else content,
+            
+            # AI Processing Results
+            "success": processing_result.get("success", False),
+            "workflow_path": processing_result.get("workflow_path"),
+            "contact_match": contact_match,
+            "ai_analysis": processing_result.get("ai_analysis", {}),
+            "tasks_generated": processing_result.get("tasks_generated", []),
+            "processing_complete": processing_result.get("processing_complete", False),
+            
+            # Email Recipients
+            "recipients": ["mj@cdtechnologies.de", "info@cdtechnologies.de"],
+            
+            # Notification Details
+            "subject": f"🤖 C&D AI: {message_type.upper()} von {from_contact}",
+            "summary": f"AI hat {len(processing_result.get('tasks_generated', []))} Tasks erstellt"
+        }
         
-        # Email Recipients
-        "recipients": ["mj@cdtechnologies.de", "info@cdtechnologies.de"],
-        
-        # Notification Details
-        "subject": f"🤖 C&D AI System: {message_type.upper()} von {from_contact}",
-        "summary": f"AI hat {len(processing_result.get('tasks_generated', []))} Tasks erstellt"
-    }
+        logger.info(f"✅ Sending standard notification for known contact: {contact_match.get('contact_name', from_contact)}")
     
     try:
         async with aiohttp.ClientSession() as session:
@@ -105,6 +156,26 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
     except Exception as e:
         logger.error(f"❌ Zapier notification error: {e}")
         return False
+
+
+def _extract_company_from_email(email: str) -> str:
+    """Extract potential company name from email domain"""
+    if "@" in email:
+        domain = email.split("@")[1].split(".")[0]
+        return domain.capitalize()
+    return ""
+
+
+def _suggest_contact_type(processing_result: Dict[str, Any]) -> str:
+    """Suggest contact type based on AI analysis"""
+    intent = processing_result.get("ai_analysis", {}).get("intent", "")
+    
+    if intent in ["quote_request", "appointment", "project_inquiry"]:
+        return "customer"
+    elif intent in ["invoice", "delivery", "order"]:
+        return "supplier"
+    else:
+        return "prospect"
 
 # ===============================
 # LANGRAPH STATE DEFINITIONS
