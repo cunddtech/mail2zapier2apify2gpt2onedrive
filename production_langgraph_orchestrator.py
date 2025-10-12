@@ -677,8 +677,8 @@ Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
         if cached_contact:
             return ContactMatch(
                 found=True,
-                contact_id=cached_contact["weclapp_contact_id"],
-                contact_name=cached_contact["contact_name"],
+                contact_id=cached_contact.get("weclapp_contact_id"),
+                contact_name=cached_contact.get("contact_name"),  # May be None from minimal cache
                 company=cached_contact.get("company_name"),
                 confidence=1.0,
                 source="cache",
