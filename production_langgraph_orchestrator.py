@@ -1102,6 +1102,20 @@ async def handle_contact_action(request: Request):
             email_id = data.get("email_id")
             contact_data = data.get("contact_data", {})
         
+        # 🆕 FALLBACK: If sender is empty, try to get it from email database
+        if not contact_email and email_id:
+            logger.info(f"⚠️ Sender empty, looking up in database for email_id: {email_id}")
+            cursor = email_db_conn.execute(
+                "SELECT sender FROM emails WHERE email_id = ?",
+                (email_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                contact_email = row[0]
+                logger.info(f"✅ Found sender from database: {contact_email}")
+            else:
+                logger.warning(f"❌ No email found in database for email_id: {email_id}")
+        
         if not action or not contact_email:
             raise HTTPException(status_code=400, detail="action and contact_email/sender required")
         
