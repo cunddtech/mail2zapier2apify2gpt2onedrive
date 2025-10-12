@@ -1103,19 +1103,21 @@ async def handle_contact_action(request: Request):
             contact_data = data.get("contact_data", {})
         
         # 🆕 FALLBACK: If sender is empty, try to get it from email database
+        sender_name = None
         if not contact_email and email_id:
             logger.info(f"⚠️ Sender empty, looking up in database for email_id: {email_id}")
             try:
                 db_conn = sqlite3.connect(DB_PATH)
                 cursor = db_conn.execute(
-                    "SELECT sender FROM email_data WHERE id = ? OR subject LIKE ?",
+                    "SELECT sender, sender_name FROM email_data WHERE id = ? OR subject LIKE ?",
                     (email_id, f"%{email_id}%")
                 )
                 row = cursor.fetchone()
                 db_conn.close()
                 if row:
                     contact_email = row[0]
-                    logger.info(f"✅ Found sender from database: {contact_email}")
+                    sender_name = row[1] if len(row) > 1 else None
+                    logger.info(f"✅ Found sender from database: {contact_email} ({sender_name})")
                 else:
                     logger.warning(f"❌ No email found in database for email_id: {email_id}")
             except Exception as db_error:
@@ -1137,11 +1139,32 @@ async def handle_contact_action(request: Request):
                     "Accept": "application/json"
                 }
                 
+                # 🔧 Namen-Parsing: Versuche sender_name zu splitten oder nutze Placeholder
+                first_name = contact_data.get("first_name", "")
+                last_name = contact_data.get("last_name", "")
+                
+                # Fallback 1: sender_name aus DB (wenn vorhanden)
+                if not first_name and not last_name and sender_name:
+                    name_parts = sender_name.strip().split(maxsplit=1)
+                    first_name = name_parts[0] if len(name_parts) > 0 else "Unbekannt"
+                    last_name = name_parts[1] if len(name_parts) > 1 else "Kontakt"
+                
+                # Fallback 2: Email-Prefix als Vorname (z.B. "jaszczyk" → "Jaszczyk")
+                if not first_name and contact_email:
+                    email_prefix = contact_email.split("@")[0]
+                    first_name = email_prefix.capitalize()
+                    last_name = "Kontakt"
+                
+                # Fallback 3: Absolute Placeholders (sollte nie passieren)
+                if not first_name:
+                    first_name = "Unbekannt"
+                    last_name = "Kontakt"
+                
                 party_data = {
                     "partyType": "PERSON",
                     "email": contact_email,
-                    "firstName": contact_data.get("first_name", ""),
-                    "lastName": contact_data.get("last_name", ""),
+                    "firstName": first_name,
+                    "lastName": last_name,
                     "company": contact_data.get("company", ""),
                     "phone": contact_data.get("phone", ""),
                     "tags": ["AI_GENERATED", "UNKNOWN_CONTACT_CONVERTED"]
