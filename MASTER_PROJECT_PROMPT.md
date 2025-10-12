@@ -330,13 +330,100 @@ Hot: Sofortige Bearbeitung erforderlich
 
 ---
 
-## 📄 **WICHTIGE DOKUMENTATION**
+## � **WECLAPP API INTEGRATION GUIDE** *(Production Reference)*
+
+### **API Grundprinzipien:**
+- **Base URL:** `https://cundd.weclapp.com/webapp/api/v2/`
+- **Authentifikation:** `AuthenticationToken: {api_token}` in jedem Request Header
+- **Content-Type:** `application/json` für alle PUT/POST Requests
+- **Accept:** `application/json` für alle Responses
+- **Performance:** Filter-Parameter nutzen statt Client-Side Filtering (100x schneller!)
+
+### **Wichtigste Endpunkte für Lead Management:**
+
+| Use Case | Endpoint | Methode | Beschreibung | Filter-Beispiele |
+|----------|----------|---------|--------------|------------------|
+| **Lead-Suche (Email)** | `/party` | GET | Kontakt via Email finden | `email-eq=kunde@firma.de` |
+| **Lead-Suche (Telefon)** | `/party` | GET | Kontakt via Telefon finden | `phone-eq=+491234567` |
+| **Neuer Lead** | `/party` | POST | Neuen Kontakt anlegen | JSON Body mit name, email, phone |
+| **Opportunity** | `/opportunity` | GET/POST | Lead Qualifizierung & Scoring | `partyId-eq=12345` |
+| **Kommunikations-Log** | `/crmEvent` | POST | Jede Interaktion dokumentieren | `partyId, type, description` |
+| **Dokumente** | `/document` | POST | Anhänge verknüpfen | `partyId, opportunityId, fileUrl` |
+| **Aufgaben** | `/task` | POST | Follow-ups & Service-Fälle | `partyId, description, dueDate` |
+| **Termine** | `/calendarEvent` | GET/POST | Terminverwaltung | `date-gt=2025-10-12` |
+| **Rechnungen** | `/purchaseInvoice` | POST | Lieferantenrechnungen | OCR-Daten zu Rechnung |
+| **Verkaufsrechnungen** | `/salesInvoice` | POST | Kundenrechnungen | automatisch generieren |
+| **Reminder** | `/reminder` | POST | Follow-up Erinnerungen | `dueDate, description` |
+
+### **Filter & Performance Optimization:**
+```bash
+# ✅ RICHTIG: Server-Side Filtering (0.3s)
+GET /party?email-eq=kunde@firma.de&pageSize=1
+
+# ❌ FALSCH: Client-Side Filtering (5s)
+GET /party?pageSize=100  # dann lokal durch 100 Kontakte suchen
+```
+
+### **Pagination für große Datenmengen:**
+```bash
+GET /party?pageSize=100&page=1&sort=-lastModifiedDate
+```
+
+### **Custom Attributes für Lead-Qualifizierung:**
+- `/customAttributeDefinition` - Eigene Felder definieren
+- Filter: `customAttribute4587-eq=NEUKUNDE`
+
+### **Workflow-Beispiele:**
+
+#### **A. Email mit PDF-Anhang (Angebot/Rechnung):**
+```
+1. GET /party?email-eq=kunde@firma.de
+2. POST /opportunity (wenn Neukunde)
+3. POST /crmEvent (Email-Interaktion loggen)
+4. POST /document (PDF verknüpfen)
+5. POST /task (Follow-up Task)
+```
+
+#### **B. SipGate Call (Terminvereinbarung):**
+```
+1. GET /party?phone-eq=+491234567890
+2. POST /crmEvent (Call Transcript & Sentiment)
+3. POST /calendarEvent (Termin buchen)
+4. POST /reminder (Follow-up 1h vorher)
+```
+
+#### **C. WhatsApp Business (Service-Anfrage):**
+```
+1. GET /party?phone-eq=+491234567890
+2. POST /crmEvent (WhatsApp-Nachricht)
+3. POST /task (Service-Fall anlegen)
+4. POST /comment (Interne Notiz)
+```
+
+### **Best Practices:**
+- ✅ **Jede Interaktion an Party-ID knüpfen** (kompletter Audit-Trail)
+- ✅ **Filter-Parameter nutzen** (Performance!)
+- ✅ **Dokumente immer referenzieren** (partyId/opportunityId)
+- ✅ **CustomAttributes für individuelle Felder** (Lead-Scoring, Tags)
+- ✅ **Pagination bei >100 Ergebnissen** (Server-Load reduzieren)
+- ✅ **Kommunikationshistory via crmEvent** (nicht nur Kommentare)
+
+### **Railway Orchestrator Integration:**
+- **Contact Matching:** `GET /party?email-eq={sender}` (0.3s avg)
+- **Communication Log:** `POST /crmEvent` nach jedem Processing
+- **Task Generation:** `POST /task` für AI-generierte Follow-ups
+- **Document Filing:** `POST /document` für Apify-verarbeitete Attachments
+
+---
+
+## �📄 **WICHTIGE DOKUMENTATION**
 
 - **`ARCHITECTURE_DECISION_FINAL.md`** - Detaillierte Architektur-Entscheidung (Zapier → Railway → Apify)
 - **`PRODUCTION_DEPLOYMENT_FINAL_REPORT.md`** - Production Status & Test Results
 - **`ZAPIER_INTEGRATION_GUIDE.md`** - Zapier Setup Schritt-für-Schritt
 - **`RAILWAY_PRODUCTION_TEST_REPORT.md`** - Webhook Tests & Performance
 - **`production_langgraph_orchestrator.py`** - Railway Orchestrator Source Code
+- **WeClapp API Docs:** https://cundd.weclapp.com/webapp/view/api/
 
 ---
 

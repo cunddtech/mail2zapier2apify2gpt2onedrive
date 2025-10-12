@@ -1071,6 +1071,157 @@ async def process_whatsapp(request: Request):
         # ⚠️ SECURITY: Never expose internal error details to client
         raise HTTPException(status_code=500, detail="Internal server error during WhatsApp processing")
 
+@app.post("/webhook/contact-action")
+async def handle_contact_action(request: Request):
+    """
+    🎯 MITARBEITER-AKTIONEN für unbekannte Kontakte
+    
+    Empfängt Entscheidung des Mitarbeiters und führt entsprechende WeClapp API Calls aus:
+    - create_contact: POST /party (neuer Kontakt)
+    - mark_private: Custom Attribute "private_contact"
+    - mark_spam: Custom Attribute "spam_contact"
+    - request_info: POST /crmEvent (Rückfrage dokumentieren)
+    """
+    
+    try:
+        data = await request.json()
+        
+        action = data.get("action")  # create_contact, mark_private, mark_spam, request_info
+        contact_email = data.get("contact_email")
+        contact_data = data.get("contact_data", {})  # Optional: name, company, phone
+        
+        if not action or not contact_email:
+            raise HTTPException(status_code=400, detail="action and contact_email required")
+        
+        logger.info(f"📋 Contact Action received: {action} for {contact_email}")
+        
+        result = {}
+        
+        # ACTION 1: Kontakt im CRM anlegen
+        if action == "create_contact":
+            async with aiohttp.ClientSession() as session:
+                headers = {
+                    "AuthenticationToken": orchestrator.weclapp_api_token,
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                }
+                
+                party_data = {
+                    "partyType": "PERSON",
+                    "email": contact_email,
+                    "firstName": contact_data.get("first_name", ""),
+                    "lastName": contact_data.get("last_name", ""),
+                    "company": contact_data.get("company", ""),
+                    "phone": contact_data.get("phone", ""),
+                    "tags": ["AI_GENERATED", "UNKNOWN_CONTACT_CONVERTED"]
+                }
+                
+                url = f"https://{orchestrator.weclapp_domain}.weclapp.com/webapp/api/v2/party"
+                
+                async with session.post(url, headers=headers, json=party_data) as response:
+                    if response.status == 201:
+                        created_party = await response.json()
+                        result = {
+                            "success": True,
+                            "action": "contact_created",
+                            "party_id": created_party.get("id"),
+                            "message": f"Kontakt {contact_email} erfolgreich angelegt"
+                        }
+                        logger.info(f"✅ Contact created: {created_party.get('id')}")
+                    else:
+                        result = {
+                            "success": False,
+                            "error": f"WeClapp API error: {response.status}"
+                        }
+        
+        # ACTION 2: Als privat markieren
+        elif action == "mark_private":
+            # Erstelle CRM Event für Dokumentation
+            async with aiohttp.ClientSession() as session:
+                headers = {
+                    "AuthenticationToken": orchestrator.weclapp_api_token,
+                    "Content-Type": "application/json"
+                }
+                
+                crm_event = {
+                    "type": "NOTE",
+                    "description": f"Kontakt als PRIVAT markiert: {contact_email}",
+                    "tags": ["PRIVATE_CONTACT"]
+                }
+                
+                url = f"https://{orchestrator.weclapp_domain}.weclapp.com/webapp/api/v2/crmEvent"
+                
+                async with session.post(url, headers=headers, json=crm_event) as response:
+                    result = {
+                        "success": response.status == 201,
+                        "action": "marked_private",
+                        "message": f"{contact_email} als privat markiert"
+                    }
+        
+        # ACTION 3: Als Spam markieren
+        elif action == "mark_spam":
+            async with aiohttp.ClientSession() as session:
+                headers = {
+                    "AuthenticationToken": orchestrator.weclapp_api_token,
+                    "Content-Type": "application/json"
+                }
+                
+                crm_event = {
+                    "type": "NOTE",
+                    "description": f"Kontakt als SPAM markiert: {contact_email}",
+                    "tags": ["SPAM_CONTACT", "BLACKLIST"]
+                }
+                
+                url = f"https://{orchestrator.weclapp_domain}.weclapp.com/webapp/api/v2/crmEvent"
+                
+                async with session.post(url, headers=headers, json=crm_event) as response:
+                    result = {
+                        "success": response.status == 201,
+                        "action": "marked_spam",
+                        "message": f"{contact_email} als Spam markiert"
+                    }
+        
+        # ACTION 4: Weitere Informationen einholen
+        elif action == "request_info":
+            async with aiohttp.ClientSession() as session:
+                headers = {
+                    "AuthenticationToken": orchestrator.weclapp_api_token,
+                    "Content-Type": "application/json"
+                }
+                
+                task_data = {
+                    "title": f"Weitere Infos einholen: {contact_email}",
+                    "description": f"Kontakt {contact_email} - Zusätzliche Informationen anfordern vor CRM-Aufnahme",
+                    "status": "OPEN",
+                    "priority": "MEDIUM",
+                    "dueDate": (datetime.now() + timedelta(days=2)).isoformat()
+                }
+                
+                url = f"https://{orchestrator.weclapp_domain}.weclapp.com/webapp/api/v2/task"
+                
+                async with session.post(url, headers=headers, json=task_data) as response:
+                    if response.status == 201:
+                        task = await response.json()
+                        result = {
+                            "success": True,
+                            "action": "info_requested",
+                            "task_id": task.get("id"),
+                            "message": f"Follow-up Task erstellt für {contact_email}"
+                        }
+                    else:
+                        result = {"success": False, "error": f"Task creation failed: {response.status}"}
+        
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Contact action error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 @app.get("/status")
 async def system_status():
     """System status and configuration"""
