@@ -1091,6 +1091,43 @@ async def system_status():
         ]
     }
 
+@app.post("/admin/cache/reset")
+async def reset_contact_cache(request: Request):
+    """🗑️ ADMIN: Reset Contact Cache Database"""
+    
+    try:
+        # Optional: Add authentication here
+        # auth_header = request.headers.get("Authorization")
+        # if auth_header != f"Bearer {os.getenv('ADMIN_TOKEN')}":
+        #     raise HTTPException(status_code=401, detail="Unauthorized")
+        
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # Get cache stats before reset
+        cursor.execute("SELECT COUNT(*), SUM(cache_hits) FROM contact_cache")
+        stats = cursor.fetchone()
+        total_entries = stats[0] or 0
+        total_hits = stats[1] or 0
+        
+        # Clear cache
+        cursor.execute("DELETE FROM contact_cache")
+        conn.commit()
+        conn.close()
+        
+        logger.warning(f"⚠️ CACHE RESET: Deleted {total_entries} entries, {total_hits} total hits")
+        
+        return {
+            "status": "success",
+            "message": "Contact cache reset successfully",
+            "deleted_entries": total_entries,
+            "deleted_cache_hits": total_hits
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Cache reset error: {e}")
+        raise HTTPException(status_code=500, detail=f"Cache reset failed: {str(e)}")
+
 # ===============================
 # PRODUCTION SERVER STARTUP
 # ===============================
