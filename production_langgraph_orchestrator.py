@@ -700,15 +700,29 @@ Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
                 "Accept": "application/json"
             }
             
-            # Filter by exact email match using WeClapp API
-            search_params = {
-                "email-eq": contact_identifier.lower(),
-                "serializationConfiguration": "IGNORE_EMPTY",
-                "pageSize": 1  # Only need 1 result for exact match
-            }
+            # Determine if contact_identifier is EMAIL or PHONE
+            is_phone = contact_identifier.startswith("+") or contact_identifier.isdigit()
+            
+            # Filter by exact email or phone match using WeClapp API
+            if is_phone:
+                # Phone number search (try multiple formats)
+                search_params = {
+                    "phone-eq": contact_identifier,
+                    "serializationConfiguration": "IGNORE_EMPTY",
+                    "pageSize": 5  # Get multiple results for phone (may match different formats)
+                }
+                logger.info(f"🔍 Searching by PHONE: {contact_identifier}")
+            else:
+                # Email search
+                search_params = {
+                    "email-eq": contact_identifier.lower(),
+                    "serializationConfiguration": "IGNORE_EMPTY",
+                    "pageSize": 1  # Only need 1 result for exact match
+                }
+                logger.info(f"🔍 Searching by EMAIL: {contact_identifier}")
             
             url = f"https://{self.weclapp_domain}.weclapp.com/webapp/api/v1/contact"
-            logger.info(f"📞 WeClapp URL: {url}?email-eq={contact_identifier}")
+            logger.info(f"📞 WeClapp URL: {url} with filter: {search_params}")
             
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=headers, params=search_params) as response:
@@ -767,12 +781,170 @@ Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
     # ===============================
     
     async def _update_contact_communication_log(self, contact_id: str, state: CommunicationState):
-        """Update communication log in CRM"""
+        """
+        📝 WeClapp CRM Communication Log
         
-        logger.info(f"📝 Updating communication log for contact {contact_id}")
+        Creates detailed crmEvent entry with:
+        - Call transcript
+        - AI Analysis (Intent, Urgency, Sentiment)
+        - Generated tasks
+        - Call direction (inbound/outbound) & duration
+        """
         
-        # WeClapp communication log update
-        # Implementierung abhängig von WeClapp API
+        logger.info(f"📝 Creating WeClapp Communication Log for contact {contact_id}")
+        
+        if not self.weclapp_api_token:
+            logger.warning("⚠️ WeClapp API token not configured - skipping CRM log")
+            return
+        
+        try:
+            # Prepare communication log data
+            message_type = state.get("message_type", "unknown")
+            ai_analysis = state.get("ai_analysis", {})
+            additional_data = state.get("additional_data", {})
+            
+            # Call-specific data
+            if message_type == "call":
+                call_direction = additional_data.get("call_direction", "inbound")
+                call_duration = additional_data.get("call_duration", 0)
+                call_transcript = state.get("content", "")
+                
+                description = f"""
+📞 **Telefonat ({call_direction.upper()})**
+
+⏱️ **Dauer:** {call_duration} Sekunden
+📅 **Zeitpunkt:** {state.get('timestamp', datetime.now().isoformat())}
+
+---
+
+### 📝 Gesprächstranskript:
+{call_transcript}
+
+---
+
+### 🤖 KI-Analyse:
+
+**Absicht:** {ai_analysis.get('intent', 'Unbekannt')}
+**Dringlichkeit:** {ai_analysis.get('urgency', 'medium')}
+**Stimmung:** {ai_analysis.get('sentiment', 'neutral')}
+
+**Zusammenfassung:**
+{ai_analysis.get('summary', 'Keine Zusammenfassung verfügbar')}
+
+---
+
+### ✅ Generierte Aufgaben:
+"""
+                # Add generated tasks to description
+                for task in state.get("tasks_generated", []):
+                    description += f"\n- {task.get('title', 'Unbekannte Aufgabe')}"
+                
+                event_type = "CALL"
+                subject = f"Telefonat ({call_direction}) - {ai_analysis.get('intent', 'Allgemein')}"
+            
+            # Email-specific data
+            elif message_type == "email":
+                description = f"""
+📧 **Email empfangen**
+
+📩 **Von:** {state.get('from_contact')}
+📅 **Zeitpunkt:** {state.get('timestamp', datetime.now().isoformat())}
+
+---
+
+### 📝 Email-Inhalt:
+{state.get('content', '')[:1000]}...
+
+---
+
+### 🤖 KI-Analyse:
+
+**Absicht:** {ai_analysis.get('intent', 'Unbekannt')}
+**Dringlichkeit:** {ai_analysis.get('urgency', 'medium')}
+**Stimmung:** {ai_analysis.get('sentiment', 'neutral')}
+
+---
+
+### ✅ Generierte Aufgaben:
+"""
+                for task in state.get("tasks_generated", []):
+                    description += f"\n- {task.get('title', 'Unbekannte Aufgabe')}"
+                
+                event_type = "EMAIL"
+                subject = f"Email - {ai_analysis.get('intent', 'Allgemein')}"
+            
+            # WhatsApp-specific data
+            elif message_type == "whatsapp":
+                description = f"""
+💬 **WhatsApp Nachricht**
+
+📱 **Von:** {state.get('from_contact')}
+📅 **Zeitpunkt:** {state.get('timestamp', datetime.now().isoformat())}
+
+---
+
+### 📝 Nachricht:
+{state.get('content', '')}
+
+---
+
+### 🤖 KI-Analyse:
+
+**Absicht:** {ai_analysis.get('intent', 'Unbekannt')}
+**Dringlichkeit:** {ai_analysis.get('urgency', 'medium')}
+**Stimmung:** {ai_analysis.get('sentiment', 'neutral')}
+
+---
+
+### ✅ Generierte Aufgaben:
+"""
+                for task in state.get("tasks_generated", []):
+                    description += f"\n- {task.get('title', 'Unbekannte Aufgabe')}"
+                
+                event_type = "NOTE"
+                subject = f"WhatsApp - {ai_analysis.get('intent', 'Allgemein')}"
+            
+            else:
+                event_type = "NOTE"
+                subject = f"{message_type.capitalize()} - Kommunikation"
+                description = state.get('content', 'Keine Details verfügbar')
+            
+            # Create WeClapp crmEvent
+            crm_event_data = {
+                "partyId": int(contact_id),
+                "eventType": event_type,
+                "subject": subject,
+                "description": description,
+                "contactChannel": "PHONE" if message_type == "call" else "EMAIL" if message_type == "email" else "OTHER",
+                "status": "DONE"
+            }
+            
+            headers = {
+                "AuthenticationToken": self.weclapp_api_token,
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
+            
+            url = f"https://{self.weclapp_domain}.weclapp.com/webapp/api/v1/crmEvent"
+            
+            logger.info(f"📤 Creating WeClapp crmEvent: {subject}")
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=headers, json=crm_event_data) as response:
+                    if response.status == 201:
+                        crm_event = await response.json()
+                        logger.info(f"✅ WeClapp crmEvent created: ID {crm_event.get('id')}")
+                        return crm_event
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"❌ WeClapp crmEvent creation failed: {response.status} - {error_text}")
+                        return None
+        
+        except Exception as e:
+            logger.error(f"❌ WeClapp Communication Log error: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return None
         
     async def _create_crm_task(self, task: AITask):
         """Create task in CRM system"""
@@ -1032,22 +1204,57 @@ async def process_email(request: Request):
 
 @app.post("/webhook/ai-call")
 async def process_call(request: Request):
-    """Process incoming call via webhook"""
+    """
+    📞 SIPGATE CALL PROCESSING
+    
+    Flow:
+    1. Telefonnummer-Matching in WeClapp (phone-eq=...)
+    2. WEG_A: Unbekannt → Notification Email mit 4 Buttons
+    3. WEG_B: Bekannt → CRM Log mit Transcript, AI Analysis, Tasks
+    """
     
     try:
         data = await request.json()
+        logger.info(f"📞 Call received: {json.dumps(data, ensure_ascii=False)}")
         
+        # Extract phone number (normalize format)
+        phone_number = data.get("from", data.get("caller", data.get("phone", "")))
+        phone_normalized = phone_number.replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+        
+        # Extract call details
+        call_direction = data.get("direction", "inbound")  # inbound or outbound
+        call_duration = data.get("duration", 0)
+        call_transcript = data.get("transcription", data.get("transcript", ""))
+        call_timestamp = data.get("timestamp", datetime.now().isoformat())
+        
+        logger.info(f"📞 Processing call from {phone_normalized} ({call_direction}, {call_duration}s)")
+        
+        # Check if transcript is available
+        if not call_transcript:
+            call_transcript = f"Anruf {call_direction} - Dauer: {call_duration}s - Keine Transkription verfügbar"
+        
+        # Process through orchestrator (includes phone matching)
         result = await orchestrator.process_communication(
             message_type="call",
-            from_contact=data.get("from", data.get("caller", "")),
-            content=data.get("transcription", f"Anruf erhalten - Dauer: {data.get('duration', 0)}s"),
-            additional_data=data
+            from_contact=phone_normalized,
+            content=call_transcript,
+            additional_data={
+                **data,
+                "call_direction": call_direction,
+                "call_duration": call_duration,
+                "call_timestamp": call_timestamp,
+                "phone_normalized": phone_normalized
+            }
         )
+        
+        logger.info(f"✅ Call processing complete: {result.get('workflow_path', 'unknown')}")
         
         return {"ai_processing": result}
         
     except Exception as e:
-        logger.error(f"Call processing error: {e}")
+        logger.error(f"❌ Call processing error: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         # ⚠️ SECURITY: Never expose internal error details to client
         raise HTTPException(status_code=500, detail="Internal server error during call processing")
 
