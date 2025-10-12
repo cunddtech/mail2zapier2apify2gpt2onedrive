@@ -473,7 +473,14 @@ class ProductionAIOrchestrator:
         except Exception as e:
             logger.error(f"❌ Contact lookup error: {e}")
             state["errors"].append(f"Contact lookup failed: {e}")
-            state["contact_match"] = {"found": False, "error": str(e)}
+            state["contact_match"] = {
+                "found": False,
+                "contact_id": None,
+                "contact_name": None,
+                "company": None,
+                "confidence": 0.0,
+                "source": "error"
+            }
         
         return state
     
