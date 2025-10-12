@@ -186,41 +186,45 @@ def _suggest_contact_type(processing_result: Dict[str, Any]) -> str:
 # SQLITE CONTACT CACHE LAYER
 # ===============================
 
-DB_PATH = os.getenv("DATABASE_PATH", "./contact_cache.db")
+DB_PATH = os.getenv("DATABASE_PATH", "./email_data.db")
 
 def initialize_contact_cache():
     """
-    🗄️ SQLITE CONTACT CACHE - Performance Layer
+    🗄️ SQLITE EMAIL DATABASE - Performance Layer
     
-    Initialisiert die Contact Cache Datenbank.
+    Nutzt die existierende email_data.db die von weclapp-sql-sync-production Actor gefüllt wird.
     MASTER PLAN: Erste Anlaufstelle vor WeClapp API Call!
     """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
     cursor.execute("""
-    CREATE TABLE IF NOT EXISTS contact_cache (
+    CREATE TABLE IF NOT EXISTS email_data (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT UNIQUE NOT NULL,
+        subject TEXT,
+        sender TEXT,
+        recipient TEXT,
+        received_date TEXT,
+        ocr_text TEXT,
+        gpt_result TEXT,
         weclapp_contact_id TEXT,
         weclapp_customer_id TEXT,
-        contact_name TEXT,
-        company_name TEXT,
-        phone TEXT,
-        last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        cache_hits INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        weclapp_opportunity_id TEXT,
+        current_stage TEXT,
+        gpt_status_suggestion TEXT,
+        status_deviation BOOLEAN,
+        remarks TEXT
     )
     """)
     
     # Index für schnelle Email-Lookups
     cursor.execute("""
-    CREATE INDEX IF NOT EXISTS idx_email ON contact_cache(email)
+    CREATE INDEX IF NOT EXISTS idx_sender ON email_data(sender)
     """)
     
     conn.commit()
     conn.close()
-    logger.info("✅ Contact Cache initialized")
+    logger.info("✅ Email Database initialized (email_data.db)")
 
 
 async def lookup_contact_in_cache(email: str) -> Optional[Dict[str, Any]]:
@@ -247,36 +251,28 @@ async def lookup_contact_in_cache(email: str) -> Optional[Dict[str, Any]]:
 
 
 def _sync_lookup_contact(email: str) -> Optional[Dict[str, Any]]:
-    """Synchronous SQLite lookup (runs in executor)"""
+    """Synchronous SQLite lookup in email_data.db (runs in executor)"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
     cursor.execute("""
-    SELECT weclapp_contact_id, weclapp_customer_id, contact_name, company_name, phone, cache_hits
-    FROM contact_cache
-    WHERE email = ?
+    SELECT DISTINCT weclapp_contact_id, weclapp_customer_id, sender
+    FROM email_data
+    WHERE sender = ? AND weclapp_contact_id IS NOT NULL
+    ORDER BY id DESC
+    LIMIT 1
     """, (email.lower(),))
     
     row = cursor.fetchone()
+    conn.close()
     
     if row:
-        # Update cache hit counter
-        cursor.execute("""
-        UPDATE contact_cache 
-        SET cache_hits = cache_hits + 1, last_seen = CURRENT_TIMESTAMP
-        WHERE email = ?
-        """, (email.lower(),))
-        conn.commit()
-        
         result = {
             "found": True,
             "source": "cache",
             "weclapp_contact_id": row[0],
             "weclapp_customer_id": row[1],
-            "contact_name": row[2],
-            "company_name": row[3],
-            "phone": row[4],
-            "cache_hits": row[5] + 1
+            "sender": row[2]
         }
         conn.close()
         return result
@@ -305,20 +301,19 @@ def _sync_cache_contact(email: str, weclapp_data: Dict[str, Any]):
     cursor = conn.cursor()
     
     cursor.execute("""
-    INSERT OR REPLACE INTO contact_cache 
-    (email, weclapp_contact_id, weclapp_customer_id, contact_name, company_name, phone, last_seen)
-    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    INSERT INTO email_data (sender, weclapp_contact_id, weclapp_customer_id, received_date, subject)
+    VALUES (?, ?, ?, ?, ?)
     """, (
         email.lower(),
         weclapp_data.get("weclapp_contact_id"),
         weclapp_data.get("weclapp_customer_id"),
-        weclapp_data.get("contact_name"),
-        weclapp_data.get("company_name"),
-        weclapp_data.get("phone")
+        datetime.now().isoformat(),
+        "Contact cached from WeClapp lookup"
     ))
     
     conn.commit()
     conn.close()
+    logger.info(f"✅ Cached in email_data.db: {email} → {weclapp_data.get('weclapp_contact_id')}")
 
 # ===============================
 # LANGRAPH STATE DEFINITIONS
@@ -1097,7 +1092,7 @@ async def system_status():
 
 @app.post("/admin/cache/reset")
 async def reset_contact_cache(request: Request):
-    """🗑️ ADMIN: Reset Contact Cache Database"""
+    """🗑️ ADMIN: Reset Email Database Cache"""
     
     try:
         # Optional: Add authentication here
@@ -1109,23 +1104,20 @@ async def reset_contact_cache(request: Request):
         cursor = conn.cursor()
         
         # Get cache stats before reset
-        cursor.execute("SELECT COUNT(*), SUM(cache_hits) FROM contact_cache")
-        stats = cursor.fetchone()
-        total_entries = stats[0] or 0
-        total_hits = stats[1] or 0
+        cursor.execute("SELECT COUNT(*) FROM email_data")
+        total_entries = cursor.fetchone()[0] or 0
         
         # Clear cache
-        cursor.execute("DELETE FROM contact_cache")
+        cursor.execute("DELETE FROM email_data")
         conn.commit()
         conn.close()
         
-        logger.warning(f"⚠️ CACHE RESET: Deleted {total_entries} entries, {total_hits} total hits")
+        logger.warning(f"⚠️ EMAIL DATABASE RESET: Deleted {total_entries} entries")
         
         return {
             "status": "success",
-            "message": "Contact cache reset successfully",
-            "deleted_entries": total_entries,
-            "deleted_cache_hits": total_hits
+            "message": "Email database reset successfully",
+            "deleted_entries": total_entries
         }
         
     except Exception as e:
