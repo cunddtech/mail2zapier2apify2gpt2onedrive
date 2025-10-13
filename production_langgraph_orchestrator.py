@@ -1028,9 +1028,18 @@ Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
                 description = state.get('content', 'Keine Details verfügbar')
             
             # Create WeClapp crmEvent
+            # Determine correct type based on message type and direction
+            if message_type == "call":
+                call_direction = state.get("call_direction", "inbound")
+                crm_type = "INCOMING_CALL" if call_direction == "inbound" else "OUTGOING_CALL"
+            elif message_type == "email":
+                crm_type = "LETTER"  # WeClapp uses LETTER for emails
+            else:
+                crm_type = "GENERAL"
+            
             crm_event_data = {
                 "partyId": int(contact_id),
-                "type": "COMMUNICATION",  # ✅ PFLICHTFELD für WeClapp!
+                "type": crm_type,  # ✅ INCOMING_CALL, OUTGOING_CALL, LETTER, or GENERAL
                 "eventType": event_type,
                 "subject": subject,
                 "description": description,
