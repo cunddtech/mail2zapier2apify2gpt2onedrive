@@ -1039,6 +1039,7 @@ Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
             
             crm_event_data = {
                 "partyId": int(contact_id),
+                "contactId": int(contact_id),  # ✅ For PERSON parties, contactId must equal partyId
                 "type": crm_type,  # ✅ INCOMING_CALL, OUTGOING_CALL, LETTER, or GENERAL
                 "eventType": event_type,
                 "subject": subject,
