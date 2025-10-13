@@ -1538,24 +1538,46 @@ async def handle_contact_action(request: Request):
                     first_name = name_parts[0] if len(name_parts) > 0 else "Unbekannt"
                     last_name = name_parts[1] if len(name_parts) > 1 else "Kontakt"
                 
-                # Fallback 2: Email-Prefix als Vorname (z.B. "jaszczyk" → "Jaszczyk")
-                if not first_name and contact_email:
-                    email_prefix = contact_email.split("@")[0]
-                    first_name = email_prefix.capitalize()
-                    last_name = "Kontakt"
+                # 🎯 CHECK: Is contact_email actually a PHONE NUMBER?
+                is_phone = contact_email and (contact_email.startswith("+") or contact_email.replace(" ", "").isdigit())
                 
-                # Fallback 3: Absolute Placeholders (sollte nie passieren)
-                if not first_name:
-                    first_name = "Unbekannt"
+                # Fallback 2: Phone Number → Generate dummy email + use number as name
+                if is_phone:
+                    phone_clean = contact_email.replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+                    first_name = f"Tel {phone_clean}"
                     last_name = "Kontakt"
+                    # Generate dummy email: phone@noemail.local
+                    dummy_email = f"{phone_clean}@noemail.local"
+                    phone_number = phone_clean
+                elif not first_name and contact_email:
+                    # Fallback 3: Email-Prefix als Vorname (z.B. "jaszczyk" → "Jaszczyk")
+                    if "@" in contact_email:
+                        email_prefix = contact_email.split("@")[0]
+                        first_name = email_prefix.capitalize()
+                        last_name = "Kontakt"
+                        dummy_email = contact_email
+                        phone_number = ""
+                    else:
+                        # Invalid format - use placeholder
+                        first_name = "Unbekannt"
+                        last_name = "Kontakt"
+                        dummy_email = f"unknown{contact_email}@noemail.local"
+                        phone_number = ""
+                else:
+                    # Fallback 4: Absolute Placeholders
+                    if not first_name:
+                        first_name = "Unbekannt"
+                        last_name = "Kontakt"
+                    dummy_email = contact_email if "@" in contact_email else f"unknown@noemail.local"
+                    phone_number = ""
                 
                 party_data = {
                     "partyType": "PERSON",
-                    "email": contact_email,
+                    "email": dummy_email,  # Always valid email format!
                     "firstName": first_name,
                     "lastName": last_name,
                     "company": contact_data.get("company", ""),
-                    "phone": contact_data.get("phone", ""),
+                    "phone": phone_number or contact_data.get("phone", "") or (contact_email if is_phone else ""),
                     "tags": ["AI_GENERATED", "UNKNOWN_CONTACT_CONVERTED"]
                 }
                 
