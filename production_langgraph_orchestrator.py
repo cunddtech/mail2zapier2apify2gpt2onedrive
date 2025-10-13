@@ -1401,7 +1401,7 @@ async def process_email(request: Request):
         logger.info(f"🔍 DEBUG: message_id={data.get('message_id')}, id={data.get('id')}, user_email={data.get('user_email')}, mailbox={data.get('mailbox')}")
         
         message_id = data.get("message_id") or data.get("id")
-        user_email = data.get("user_email") or data.get("mailbox")
+        user_email = data.get("user_email") or data.get("mailbox") or data.get("recipient")
         
         # If message_id provided → Load full email from Graph API
         if message_id and user_email:
