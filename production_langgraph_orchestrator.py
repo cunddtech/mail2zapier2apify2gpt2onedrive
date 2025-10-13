@@ -1327,28 +1327,9 @@ async def process_call(request: Request):
         data = await request.json()
         logger.info(f"📞 SipGate Full Payload: {json.dumps(data, ensure_ascii=False)}")
         
-        # 🎯 CHECK EVENT TYPE: Only process "hangup" events (has transcription!)
-        # SipGate sends: NO event field = initial call, event=answer, event=hangup
-        event_type = data.get("event", None)
-        
-        if event_type != "hangup":
-            event_name = event_type if event_type else "newCall"
-            logger.info(f"⏭️ Skipping {event_name} event - waiting for hangup (with transcription)")
-            
-            # Return XML response to subscribe to hangup event
-            # Use the base URL without query params
-            webhook_url = str(request.url).split('?')[0]
-            xml_response = f'<?xml version="1.0" encoding="UTF-8"?>\n<Response onHangup="{webhook_url}" />'
-            
-            logger.info(f"📤 Sending XML response with onHangup URL: {webhook_url}")
-            
-            return FastAPIResponse(
-                content=xml_response,
-                media_type="application/xml",
-                status_code=200
-            )
-        
-        logger.info("✅ Processing hangup event with transcription")
+        # 🎯 SIPGATE SENDS ALL DATA IN ONE EVENT!
+        # No separate "hangup" event - transcription ("Summary") is in the FIRST POST!
+        logger.info("✅ Processing SipGate call with available data")
         
         # Extract call direction FIRST (determines logic)
         call_direction = data.get("direction", "inbound")  # inbound or outbound
