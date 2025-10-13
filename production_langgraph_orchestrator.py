@@ -63,6 +63,13 @@ from contextlib import asynccontextmanager
 from modules.auth.get_graph_token_mail import get_graph_token_mail
 from modules.msgraph.fetch_email_with_attachments import fetch_email_details_with_attachments
 
+# Call Analysis (Task-Ableitung, Termin-Extraktion, Follow-Ups)
+from modules.gpt.analyze_call_content import (
+    analyze_call_content,
+    extract_appointment_datetime,
+    calculate_follow_up_date
+)
+
 # Logging Setup
 logging.basicConfig(
     level=logging.INFO,
@@ -1030,6 +1037,63 @@ Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
                 event_type = "NOTE"
                 subject = f"{message_type.capitalize()} - Kommunikation"
                 description = state.get('content', 'Keine Details verfügbar')
+            
+            # 🎯 NEUE FEATURE: Call Analysis für Task-Ableitung, Termin-Extraktion, Follow-Ups
+            if message_type == "call" and state.get('content'):
+                try:
+                    call_duration = state.get("call_duration", 0)
+                    contact_name = contact_match.get("name", "Unbekannt") if contact_match else "Unbekannt"
+                    
+                    logger.info(f"🎯 Analyzing call transcript for tasks/appointments...")
+                    call_analysis = await analyze_call_content(
+                        transcription=state.get('content', ''),
+                        contact_name=contact_name,
+                        duration_seconds=call_duration
+                    )
+                    
+                    # Log results
+                    if call_analysis:
+                        logger.info(f"✅ Call Analysis Complete:")
+                        logger.info(f"   📋 Tasks: {len(call_analysis.get('tasks', []))}")
+                        logger.info(f"   📅 Appointments: {len(call_analysis.get('appointments', []))}")
+                        logger.info(f"   ⏰ Follow-Ups: {len(call_analysis.get('follow_ups', []))}")
+                        logger.info(f"   📝 Summary: {call_analysis.get('summary', '')}")
+                        
+                        # Store analysis in state for later use
+                        state["call_analysis"] = call_analysis
+                        
+                        # Add analyzed tasks to state's tasks_generated
+                        for task_data in call_analysis.get('tasks', []):
+                            state["tasks_generated"].append({
+                                "title": task_data.get("title"),
+                                "description": task_data.get("description"),
+                                "priority": task_data.get("priority", "medium"),
+                                "due_date": task_data.get("due_date"),
+                                "source": "call_transcript_analysis"
+                            })
+                        
+                        # Enhance description with analysis
+                        description += f"\n\n### 🎯 Call-Analyse:\n\n"
+                        description += f"**Zusammenfassung:** {call_analysis.get('summary', 'N/A')}\n\n"
+                        
+                        if call_analysis.get('tasks'):
+                            description += "**Erkannte Aufgaben:**\n"
+                            for task in call_analysis.get('tasks', []):
+                                description += f"- [{task.get('priority', 'medium').upper()}] {task.get('title')}\n"
+                        
+                        if call_analysis.get('appointments'):
+                            description += "\n**Vereinbarte Termine:**\n"
+                            for apt in call_analysis.get('appointments', []):
+                                description += f"- 📅 {apt.get('date')} {apt.get('time', '')} - {apt.get('description')}\n"
+                        
+                        if call_analysis.get('follow_ups'):
+                            description += "\n**Follow-Ups:**\n"
+                            for followup in call_analysis.get('follow_ups', []):
+                                description += f"- ⏰ {followup.get('due_date')}: {followup.get('action')}\n"
+                    
+                except Exception as e:
+                    logger.error(f"❌ Call analysis error: {e}")
+                    # Continue without analysis - not critical
             
             # Create WeClapp crmEvent
             # Determine correct type based on message type and direction
