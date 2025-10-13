@@ -58,10 +58,61 @@ import logging
 import sqlite3
 import asyncio
 from contextlib import asynccontextmanager
+import requests
 
-# Microsoft Graph API für Email-Loading
-from modules.auth.get_graph_token_mail import get_graph_token_mail
-from modules.msgraph.fetch_email_with_attachments import fetch_email_details_with_attachments
+# INLINE Graph API Functions (Railway deployment workaround)
+async def get_graph_token_mail():
+    """Holt das Zugriffstoken von Microsoft Graph für Mail."""
+    tenant_id = os.getenv("GRAPH_TENANT_ID_MAIL")
+    client_id = os.getenv("GRAPH_CLIENT_ID_MAIL")
+    client_secret = os.getenv("GRAPH_CLIENT_SECRET_MAIL")
+    
+    if not tenant_id or not client_id or not client_secret:
+        logger.error("❌ Fehlende Mail-Graph API Zugangsdaten")
+        return None
+    
+    url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    data = {
+        "grant_type": "client_credentials",
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "scope": "https://graph.microsoft.com/.default"
+    }
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, headers=headers, data=data)
+            if response.status_code == 200:
+                return response.json().get("access_token")
+            else:
+                logger.error(f"❌ Token error: {response.status_code}")
+                return None
+    except Exception as e:
+        logger.error(f"❌ Token exception: {e}")
+        return None
+
+async def fetch_email_details_with_attachments(user_email, message_id, access_token):
+    """Ruft die E-Mail-Daten und Anhänge von Microsoft Graph ab."""
+    email_url = f"https://graph.microsoft.com/v1.0/users/{user_email}/messages/{message_id}?$expand=attachments"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json"
+    }
+    
+    logger.info(f"🔍 Loading email: user={user_email}, message={message_id[:20]}...")
+    try:
+        response = requests.get(email_url, headers=headers)
+        if response.status_code == 200:
+            email_data = response.json()
+            logger.info(f"✅ Email loaded: Subject='{email_data.get('subject', 'no subject')}', From='{email_data.get('from', {}).get('emailAddress', {}).get('address', 'unknown')}'")
+            return email_data
+        else:
+            logger.error(f"❌ Graph API error: {response.status_code} - {response.text[:200]}")
+            return None
+    except Exception as e:
+        logger.error(f"❌ Email fetch exception: {e}")
+        return None
 
 # Call Analysis (Task-Ableitung, Termin-Extraktion, Follow-Ups)
 from modules.gpt.analyze_call_content import (
