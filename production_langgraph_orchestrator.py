@@ -38,6 +38,7 @@ from langchain_core.output_parsers import JsonOutputParser
 
 # FastAPI Production Server
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import Response as FastAPIResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -1326,6 +1327,21 @@ async def process_call(request: Request):
         data = await request.json()
         logger.info(f"📞 SipGate Full Payload: {json.dumps(data, ensure_ascii=False)}")
         
+        # 🎯 CHECK EVENT TYPE: Only process "hangup" events (has transcription!)
+        event_type = data.get("event", "newCall")
+        
+        if event_type != "hangup":
+            logger.info(f"⏭️ Skipping {event_type} event - waiting for hangup (with transcription)")
+            # Return XML response to subscribe to hangup event
+            xml_response = f'<?xml version="1.0" encoding="UTF-8"?><Response onHangup="{str(request.url)}" />'
+            return FastAPIResponse(
+                content=xml_response,
+                media_type="application/xml",
+                status_code=200
+            )
+        
+        logger.info("✅ Processing hangup event with transcription")
+        
         # Extract call direction FIRST (determines logic)
         call_direction = data.get("direction", "inbound")  # inbound or outbound
         
@@ -1353,9 +1369,19 @@ async def process_call(request: Request):
         
         # Normalize phone format (remove spaces, dashes, brackets)
         phone_normalized = external_number.replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
-        call_duration = data.get("duration", 0)
-        call_transcript = data.get("transcription", data.get("transcript", ""))
+        
+        # Extract call metadata
+        call_duration = data.get("call_duration", data.get("duration", 0))
         call_timestamp = data.get("timestamp", datetime.now().isoformat())
+        
+        # Extract transcription (SipGate might send in different fields)
+        call_transcript = (
+            data.get("transcription") or 
+            data.get("transcript") or 
+            data.get("Summary") or  # Seen in your payload!
+            data.get("summary") or
+            ""
+        )
         
         logger.info(f"📞 Direction: {call_direction} | External Contact: {phone_normalized} | Our Number: {our_number} | Duration: {call_duration}s")
         
