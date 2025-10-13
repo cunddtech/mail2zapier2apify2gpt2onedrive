@@ -1397,7 +1397,8 @@ async def process_email(request: Request):
     
     try:
         data = await request.json()
-        logger.info(f"📧 Email webhook triggered: {json.dumps(data, ensure_ascii=False)[:200]}")
+        logger.info(f"📧 Email webhook triggered: {json.dumps(data, ensure_ascii=False)[:500]}")
+        logger.info(f"🔍 DEBUG: message_id={data.get('message_id')}, id={data.get('id')}, user_email={data.get('user_email')}, mailbox={data.get('mailbox')}")
         
         message_id = data.get("message_id") or data.get("id")
         user_email = data.get("user_email") or data.get("mailbox")
