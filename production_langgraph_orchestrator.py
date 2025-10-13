@@ -28,6 +28,14 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, TypedDict
 from dataclasses import dataclass
+import pytz  # Timezone support
+
+# Deutsche Zeitzone
+BERLIN_TZ = pytz.timezone('Europe/Berlin')
+
+def now_berlin():
+    """Return current datetime in Berlin timezone"""
+    return datetime.now(BERLIN_TZ)
 
 # LangGraph/LangChain Imports
 from langgraph.graph import StateGraph, END
@@ -120,12 +128,12 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
         
         notification_data = {
             "notification_type": "unknown_contact_action_required",
-            "email_id": f"railway-{datetime.now().timestamp()}",
+            "email_id": f"railway-{now_berlin().timestamp()}",
             "sender": from_contact,
             "sender_name": processing_result.get("sender_name", "Unbekannt"),
             "subject": f"{message_type.upper()}: {content[:100]}",
             "body_preview": content[:500] + "..." if len(content) > 500 else content,
-            "received_time": datetime.now().isoformat(),
+            "received_time": now_berlin().isoformat(),
             
             # AI Analysis (flattened for Zapier)
             "ai_analysis": processing_result.get("ai_analysis", {}),
@@ -147,7 +155,7 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
         # Standard Notification for known contacts
         notification_data = {
             "notification_type": "standard",
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": now_berlin().isoformat(),
             "channel": message_type,
             "from": from_contact,
             "content_preview": content[:200] + "..." if len(content) > 200 else content,
@@ -333,7 +341,7 @@ def _sync_cache_contact(email: str, weclapp_data: Dict[str, Any]):
         email.lower(),
         weclapp_data.get("weclapp_contact_id"),
         weclapp_data.get("weclapp_customer_id"),
-        datetime.now().isoformat(),
+        now_berlin().isoformat(),
         "Contact cached from WeClapp lookup"
     ))
     
@@ -923,7 +931,7 @@ Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
 📞 **Telefonat ({call_direction.upper()})**
 
 ⏱️ **Dauer:** {call_duration} Sekunden
-📅 **Zeitpunkt:** {state.get('timestamp', datetime.now().isoformat())}
+📅 **Zeitpunkt:** {state.get('timestamp', now_berlin().isoformat())}
 
 ---
 
@@ -958,7 +966,7 @@ Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
 📧 **Email empfangen**
 
 📩 **Von:** {state.get('from_contact')}
-📅 **Zeitpunkt:** {state.get('timestamp', datetime.now().isoformat())}
+📅 **Zeitpunkt:** {state.get('timestamp', now_berlin().isoformat())}
 
 ---
 
@@ -989,7 +997,7 @@ Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
 💬 **WhatsApp Nachricht**
 
 📱 **Von:** {state.get('from_contact')}
-📅 **Zeitpunkt:** {state.get('timestamp', datetime.now().isoformat())}
+📅 **Zeitpunkt:** {state.get('timestamp', now_berlin().isoformat())}
 
 ---
 
@@ -1022,11 +1030,13 @@ Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
             # Create WeClapp crmEvent
             crm_event_data = {
                 "partyId": int(contact_id),
+                "type": "COMMUNICATION",  # ✅ PFLICHTFELD für WeClapp!
                 "eventType": event_type,
                 "subject": subject,
                 "description": description,
                 "contactChannel": "PHONE" if message_type == "call" else "EMAIL" if message_type == "email" else "OTHER",
-                "status": "DONE"
+                "status": "DONE",
+                "eventDate": int(now_berlin().timestamp() * 1000)  # Unix timestamp in milliseconds
             }
             
             headers = {
@@ -1070,7 +1080,7 @@ Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
         logger.info(f"🆕 Creating temporary CRM entry for {state['from_contact']}")
         
         return {
-            "temp_id": f"temp_{datetime.now().timestamp()}",
+            "temp_id": f"temp_{now_berlin().timestamp()}",
             "contact": state["from_contact"],
             "status": "pending_assignment"
         }
@@ -1143,7 +1153,7 @@ Antworten Sie mit den erforderlichen Kontakt-Details oder markieren Sie als "Pri
         """Determine responsible employee for unknown contact"""
         
         # Zeit-basierte Zuweisung
-        hour = datetime.now().hour
+        hour = now_berlin().hour
         
         if 9 <= hour <= 17:
             return "sales_team"
@@ -1155,7 +1165,7 @@ Antworten Sie mit den erforderlichen Kontakt-Details oder markieren Sie als "Pri
         
         from datetime import datetime, timedelta
         
-        due_date = datetime.now() + timedelta(hours=hours_from_now)
+        due_date = now_berlin() + timedelta(hours=hours_from_now)
         return due_date.isoformat()
     
     def _task_to_dict(self, task: AITask) -> Dict[str, Any]:
@@ -1189,7 +1199,7 @@ Antworten Sie mit den erforderlichen Kontakt-Details oder markieren Sie als "Pri
             message_type=message_type,
             from_contact=from_contact,
             content=content,
-            timestamp=datetime.now().isoformat(),
+            timestamp=now_berlin().isoformat(),
             contact_match=None,
             ai_analysis=None,
             workflow_path=None,
@@ -1288,7 +1298,7 @@ async def root():
             "/webhook/ai-whatsapp"
         ],
         "version": "1.0.0",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": now_berlin().isoformat()
     }
 
 @app.post("/webhook/ai-email")
@@ -1338,7 +1348,7 @@ async def process_call(request: Request):
         # Basic call info
         call_status = data.get("call_status", data.get("status", ""))
         call_duration = data.get("call_duration", data.get("duration", 0))
-        call_timestamp = data.get("timestamp", datetime.now().isoformat())
+        call_timestamp = data.get("timestamp", now_berlin().isoformat())
         
         # Contact info from SipGate CRM (if available)
         caller_name = data.get("caller_name", data.get("contact_name", data.get("name", "")))
@@ -1659,7 +1669,7 @@ async def handle_contact_action(request: Request):
                     "description": f"Kontakt {contact_email} - Zusätzliche Informationen anfordern vor CRM-Aufnahme",
                     "status": "OPEN",
                     "priority": "MEDIUM",
-                    "dueDate": (datetime.now() + timedelta(days=2)).isoformat()
+                    "dueDate": (now_berlin() + timedelta(days=2)).isoformat()
                 }
                 
                 url = f"https://{orchestrator.weclapp_domain}.weclapp.com/webapp/api/v2/task"
