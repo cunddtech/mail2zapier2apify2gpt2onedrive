@@ -1454,6 +1454,24 @@ async def process_email(request: Request):
         message_id = data.get("message_id") or data.get("id")
         user_email = data.get("user_email") or data.get("mailbox") or data.get("recipient")
         
+        # ⚡ IMMEDIATE RESPONSE to avoid Zapier timeout
+        # Process in background using asyncio.create_task
+        import asyncio
+        asyncio.create_task(process_email_background(data, message_id, user_email))
+        
+        return {
+            "status": "accepted",
+            "message": "Email processing started in background",
+            "message_id": message_id
+        }
+        
+    except Exception as e:
+        logger.error(f"Email webhook error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+async def process_email_background(data: dict, message_id: str, user_email: str):
+    """Background task to process email without blocking Zapier webhook"""
+    try:
         # If message_id provided → Load full email from Graph API
         if message_id and user_email:
             logger.info(f"🔍 Loading full email via Graph API: message_id={message_id}, mailbox={user_email}")
@@ -1462,7 +1480,7 @@ async def process_email(request: Request):
             access_token = await get_graph_token_mail()
             if not access_token:
                 logger.error("❌ Failed to get Graph API token")
-                raise HTTPException(status_code=500, detail="Graph API authentication failed")
+                return
             
             # Fetch full email with attachments
             email_data = await fetch_email_details_with_attachments(
@@ -1473,7 +1491,7 @@ async def process_email(request: Request):
             
             if not email_data:
                 logger.error(f"❌ Failed to load email from Graph API: {message_id}")
-                raise HTTPException(status_code=404, detail="Email not found")
+                return
             
             # Extract email details
             from_address = email_data.get("from", {}).get("emailAddress", {}).get("address", "")
@@ -1498,6 +1516,7 @@ async def process_email(request: Request):
                     "has_attachments": len(attachments) > 0
                 }
             )
+            logger.info(f"✅ Email processing complete: {result.get('workflow_path', 'unknown')}")
             
         else:
             # Fallback: Process with provided data (no Graph API)
@@ -1508,15 +1527,12 @@ async def process_email(request: Request):
                 content=data.get("content", data.get("subject", "")),
                 additional_data=data
             )
-        
-        return {"ai_processing": result}
+            logger.info(f"✅ Email processing complete (fallback): {result.get('workflow_path', 'unknown')}")
         
     except Exception as e:
-        logger.error(f"Email processing error: {e}")
+        logger.error(f"❌ Background email processing error: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        # ⚠️ SECURITY: Never expose internal error details to client
-        raise HTTPException(status_code=500, detail="Internal server error during email processing")
 
 @app.post("/webhook/ai-call")
 async def process_call(request: Request):
