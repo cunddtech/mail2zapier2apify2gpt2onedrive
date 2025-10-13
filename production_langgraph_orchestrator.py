@@ -76,6 +76,47 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
     
     # 🆕 ENHANCED: Unknown Contact Notification (Zapier-compatible format)
     if not contact_found:
+        # Check for potential matches from fuzzy search
+        potential_matches = processing_result.get("potential_matches", [])
+        
+        # Build action options based on whether we have potential matches
+        action_options = []
+        
+        if potential_matches:
+            # Add "KONTAKT ZUORDNEN" as first option if we found potential matches
+            for match in potential_matches[:1]:  # Only show best match in button
+                action_options.append({
+                    "action": "assign_to_existing",
+                    "label": "KONTAKT ZUORDNEN",
+                    "description": f"Zu existierendem Kontakt zuordnen: {match.get('contact_name')} ({match.get('reason')})",
+                    "contact_id": match.get("contact_id"),
+                    "existing_contact": match.get("contact_name")
+                })
+        
+        # Standard actions
+        action_options.extend([
+            {
+                "action": "create_contact",
+                "label": "KONTAKT ANLEGEN",
+                "description": "Als neuen Kontakt in WeClapp anlegen"
+            },
+            {
+                "action": "mark_private",
+                "label": "PRIVAT MARKIEREN",
+                "description": "Als private Anfrage markieren (kein CRM-Eintrag)"
+            },
+            {
+                "action": "mark_spam",
+                "label": "SPAM MARKIEREN",
+                "description": "Als Spam markieren und blockieren"
+            },
+            {
+                "action": "request_info",
+                "label": "INFO ANFORDERN",
+                "description": "Mehr Informationen vom Absender anfordern"
+            }
+        ])
+        
         notification_data = {
             "notification_type": "unknown_contact_action_required",
             "email_id": f"railway-{datetime.now().timestamp()}",
@@ -88,29 +129,12 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
             # AI Analysis (flattened for Zapier)
             "ai_analysis": processing_result.get("ai_analysis", {}),
             
-            # Action Options (flat array for Zapier)
-            "action_options": [
-                {
-                    "action": "create_contact",
-                    "label": "KONTAKT ANLEGEN",
-                    "description": "Als neuen Kontakt in WeClapp anlegen"
-                },
-                {
-                    "action": "mark_private",
-                    "label": "PRIVAT MARKIEREN",
-                    "description": "Als private Anfrage markieren (kein CRM-Eintrag)"
-                },
-                {
-                    "action": "mark_spam",
-                    "label": "SPAM MARKIEREN",
-                    "description": "Als Spam markieren und blockieren"
-                },
-                {
-                    "action": "request_info",
-                    "label": "INFO ANFORDERN",
-                    "description": "Mehr Informationen vom Absender anfordern"
-                }
-            ],
+            # Potential Matches (if any)
+            "potential_matches": potential_matches,
+            "has_potential_matches": len(potential_matches) > 0,
+            
+            # Action Options (dynamic based on potential matches)
+            "action_options": action_options,
             
             "responsible_employee": "mj@cdtechnologies.de",
             "webhook_reply_url": "https://my-langgraph-agent-production.up.railway.app/webhook/contact-action"
@@ -449,11 +473,22 @@ class ProductionAIOrchestrator:
         logger.info(f"🔍 Contact lookup for: {state['from_contact']}")
         
         try:
-            # WeClapp Contact Search
+            # STEP 1: Direct WeClapp Contact Search (Email or Phone)
             weclapp_match = await self._search_weclapp_contact(state["from_contact"])
             
-            # Apify Contact Search (wenn WeClapp nichts findet)
+            # STEP 2: If no direct match, try FUZZY MATCHING
+            potential_matches = []
             if not weclapp_match.found:
+                logger.info("🔍 No direct match - trying fuzzy search...")
+                potential_matches = await self._fuzzy_contact_search(state["from_contact"], state)
+                
+                if potential_matches:
+                    logger.info(f"✨ Found {len(potential_matches)} potential matches via fuzzy search")
+                    # Store potential matches for WEG_A notification
+                    state["potential_matches"] = potential_matches
+            
+            # STEP 3: Apify Contact Search (wenn WeClapp nichts findet)
+            if not weclapp_match.found and not potential_matches:
                 apify_match = await self._search_apify_contact(state["from_contact"])
                 contact_match = apify_match
             else:
@@ -775,6 +810,80 @@ Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
         # In production: Search durch Apify datasets
         
         return ContactMatch(found=False, source="apify")
+    
+    async def _fuzzy_contact_search(self, contact_identifier: str, state: CommunicationState) -> List[Dict[str, Any]]:
+        """
+        🔍 FUZZY CONTACT MATCHING
+        
+        Erweiterte Suche wenn kein direkter Match:
+        1. Domain-Suche (Email) → Firma mit mehreren Mitarbeitern
+        2. Telefon-Prefix → Kunde mit mehreren Nummern  
+        3. Namen-Matching → Alternativer Kontakt
+        """
+        
+        potential_matches = []
+        
+        if not self.weclapp_api_token:
+            return potential_matches
+        
+        try:
+            headers = {
+                "AuthenticationToken": self.weclapp_api_token,
+                "Accept": "application/json"
+            }
+            
+            # 1. DOMAIN-SUCHE (Email)
+            if "@" in contact_identifier:
+                domain = contact_identifier.split("@")[1]
+                logger.info(f"🔍 Fuzzy: domain @{domain}")
+                
+                url = f"https://{self.weclapp_domain}.weclapp.com/webapp/api/v1/party"
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, headers=headers, params={"email-like": f"%@{domain}", "pageSize": 5}) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            for contact in data.get("result", []):
+                                if contact.get("email", "").lower() != contact_identifier.lower():
+                                    potential_matches.append({
+                                        "match_type": "domain",
+                                        "confidence": 0.8,
+                                        "contact_id": str(contact.get("id")),
+                                        "contact_name": f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip(),
+                                        "company": contact.get("company", {}).get("name") if contact.get("company") else None,
+                                        "existing_identifier": contact.get("email"),
+                                        "reason": f"Gleiche Firma (@{domain})"
+                                    })
+            
+            # 2. TELEFON-PREFIX
+            elif contact_identifier.startswith("+") and len(contact_identifier) >= 8:
+                prefix = contact_identifier[:8]
+                logger.info(f"🔍 Fuzzy: phone {prefix}*")
+                
+                url = f"https://{self.weclapp_domain}.weclapp.com/webapp/api/v1/party"
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, headers=headers, params={"phone-like": f"{prefix}%", "pageSize": 5}) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            for contact in data.get("result", []):
+                                if contact.get("phone") and contact.get("phone") != contact_identifier:
+                                    potential_matches.append({
+                                        "match_type": "phone_prefix",
+                                        "confidence": 0.7,
+                                        "contact_id": str(contact.get("id")),
+                                        "contact_name": f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip(),
+                                        "company": contact.get("company", {}).get("name") if contact.get("company") else None,
+                                        "existing_identifier": contact.get("phone"),
+                                        "reason": f"Ähnliche Nummer ({contact.get('phone')})"
+                                    })
+            
+            # Limit to top 3
+            potential_matches = sorted(potential_matches, key=lambda x: x["confidence"], reverse=True)[:3]
+            logger.info(f"✅ Fuzzy: {len(potential_matches)} matches")
+            return potential_matches
+            
+        except Exception as e:
+            logger.error(f"❌ Fuzzy error: {str(e)}")
+            return []
     
     # ===============================
     # CRM INTEGRATION METHODS
@@ -1215,11 +1324,29 @@ async def process_call(request: Request):
     
     try:
         data = await request.json()
-        logger.info(f"📞 Call received: {json.dumps(data, ensure_ascii=False)}")
+        logger.info(f"📞 SipGate Full Payload: {json.dumps(data, ensure_ascii=False)}")
         
-        # Extract phone number (normalize format)
-        phone_number = data.get("from", data.get("caller", data.get("phone", "")))
-        phone_normalized = phone_number.replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+        # Extract CALLER number (NOT our number!)
+        # SipGate sends different field names depending on setup
+        caller_number = (
+            data.get("caller") or          # Standard SipGate field
+            data.get("callerNumber") or     # Alternative field
+            data.get("remote") or           # Remote party
+            data.get("from") or             # Fallback
+            ""
+        )
+        
+        # Extract OUR number (recipient) for logging
+        our_number = (
+            data.get("to") or 
+            data.get("recipient") or 
+            data.get("callee") or
+            data.get("called") or
+            ""
+        )
+        
+        # Normalize phone format (remove spaces, dashes, brackets)
+        phone_normalized = caller_number.replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
         
         # Extract call details
         call_direction = data.get("direction", "inbound")  # inbound or outbound
@@ -1227,7 +1354,7 @@ async def process_call(request: Request):
         call_transcript = data.get("transcription", data.get("transcript", ""))
         call_timestamp = data.get("timestamp", datetime.now().isoformat())
         
-        logger.info(f"📞 Processing call from {phone_normalized} ({call_direction}, {call_duration}s)")
+        logger.info(f"📞 Caller: {phone_normalized}, Our Number: {our_number}, Direction: {call_direction}, Duration: {call_duration}s")
         
         # Check if transcript is available
         if not call_transcript:
