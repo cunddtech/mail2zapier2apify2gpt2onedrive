@@ -1326,35 +1326,38 @@ async def process_call(request: Request):
         data = await request.json()
         logger.info(f"📞 SipGate Full Payload: {json.dumps(data, ensure_ascii=False)}")
         
-        # Extract CALLER number (NOT our number!)
-        # SipGate sends different field names depending on setup
-        caller_number = (
-            data.get("caller") or          # Standard SipGate field
-            data.get("callerNumber") or     # Alternative field
-            data.get("remote") or           # Remote party
-            data.get("from") or             # Fallback
-            ""
-        )
+        # Extract call direction FIRST (determines logic)
+        call_direction = data.get("direction", "inbound")  # inbound or outbound
         
-        # Extract OUR number (recipient) for logging
-        our_number = (
-            data.get("to") or 
-            data.get("recipient") or 
-            data.get("callee") or
-            data.get("called") or
-            ""
-        )
+        # 🎯 FIX: OUTBOUND vs INBOUND caller logic
+        if call_direction == "outbound":
+            # WE called someone → "to" is the EXTERNAL contact
+            external_number = data.get("to") or data.get("recipient") or data.get("callee") or ""
+            our_number = data.get("from") or data.get("caller") or ""
+        else:
+            # Someone called US → "from" is the EXTERNAL contact
+            external_number = (
+                data.get("caller") or          # Standard SipGate field
+                data.get("callerNumber") or     # Alternative field
+                data.get("remote") or           # Remote party
+                data.get("from") or             # Fallback
+                ""
+            )
+            our_number = (
+                data.get("to") or 
+                data.get("recipient") or 
+                data.get("callee") or
+                data.get("called") or
+                ""
+            )
         
         # Normalize phone format (remove spaces, dashes, brackets)
-        phone_normalized = caller_number.replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
-        
-        # Extract call details
-        call_direction = data.get("direction", "inbound")  # inbound or outbound
+        phone_normalized = external_number.replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
         call_duration = data.get("duration", 0)
         call_transcript = data.get("transcription", data.get("transcript", ""))
         call_timestamp = data.get("timestamp", datetime.now().isoformat())
         
-        logger.info(f"📞 Caller: {phone_normalized}, Our Number: {our_number}, Direction: {call_direction}, Duration: {call_duration}s")
+        logger.info(f"📞 Direction: {call_direction} | External Contact: {phone_normalized} | Our Number: {our_number} | Duration: {call_duration}s")
         
         # Check if transcript is available
         if not call_transcript:
