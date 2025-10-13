@@ -1334,6 +1334,25 @@ async def process_call(request: Request):
         # Extract call direction FIRST (determines logic)
         call_direction = data.get("direction", "inbound")  # inbound or outbound
         
+        # 🎯 EXTRACT ALL AVAILABLE SIPGATE DATA
+        # Basic call info
+        call_status = data.get("call_status", data.get("status", ""))
+        call_duration = data.get("call_duration", data.get("duration", 0))
+        call_timestamp = data.get("timestamp", datetime.now().isoformat())
+        
+        # Contact info from SipGate CRM (if available)
+        caller_name = data.get("caller_name", data.get("contact_name", data.get("name", "")))
+        company_name = data.get("company", data.get("company_name", ""))
+        
+        # Assigned user/employee (which team member)
+        assigned_user = data.get("user", data.get("username", ""))
+        user_id = data.get("userId", data.get("user_id", ""))
+        
+        # Recording & Notes
+        recording_url = data.get("recording_url", data.get("recordingUrl", ""))
+        notes = data.get("notes", data.get("comment", ""))
+        tags = data.get("tags", [])
+        
         # 🎯 FIX: OUTBOUND vs INBOUND caller logic
         if call_direction == "outbound":
             # WE called someone → "to" is the EXTERNAL contact
@@ -1359,10 +1378,6 @@ async def process_call(request: Request):
         # Normalize phone format (remove spaces, dashes, brackets)
         phone_normalized = external_number.replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
         
-        # Extract call metadata
-        call_duration = data.get("call_duration", data.get("duration", 0))
-        call_timestamp = data.get("timestamp", datetime.now().isoformat())
-        
         # Extract transcription (SipGate might send in different fields)
         call_transcript = (
             data.get("transcription") or 
@@ -1372,7 +1387,20 @@ async def process_call(request: Request):
             ""
         )
         
-        logger.info(f"📞 Direction: {call_direction} | External Contact: {phone_normalized} | Our Number: {our_number} | Duration: {call_duration}s")
+        # 📊 LOG ALL EXTRACTED DATA
+        logger.info(f"📞 Call Details:")
+        logger.info(f"   Direction: {call_direction} | Status: {call_status} | Duration: {call_duration}s")
+        logger.info(f"   External: {phone_normalized} | Our Number: {our_number}")
+        if caller_name:
+            logger.info(f"   📛 Caller Name: {caller_name}")
+        if company_name:
+            logger.info(f"   🏢 Company: {company_name}")
+        if assigned_user:
+            logger.info(f"   👤 Assigned to: {assigned_user} ({user_id})")
+        if recording_url:
+            logger.info(f"   🎙️ Recording: {recording_url}")
+        if tags:
+            logger.info(f"   🏷️ Tags: {', '.join(tags) if isinstance(tags, list) else tags}")
         
         # Check if transcript is available
         if not call_transcript:
@@ -1388,7 +1416,16 @@ async def process_call(request: Request):
                 "call_direction": call_direction,
                 "call_duration": call_duration,
                 "call_timestamp": call_timestamp,
-                "phone_normalized": phone_normalized
+                "call_status": call_status,
+                "phone_normalized": phone_normalized,
+                # SipGate CRM data (if available)
+                "caller_name": caller_name,
+                "company_name": company_name,
+                "assigned_user": assigned_user,
+                "user_id": user_id,
+                "recording_url": recording_url,
+                "notes": notes,
+                "tags": tags
             }
         )
         
