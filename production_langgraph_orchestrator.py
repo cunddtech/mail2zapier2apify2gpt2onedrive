@@ -1588,7 +1588,11 @@ async def process_email_background(data: dict, message_id: str, user_email: str)
 @app.post("/webhook/ai-call")
 async def process_call(request: Request):
     """
-    📞 SIPGATE CALL PROCESSING
+    📞 SIPGATE CALL PROCESSING (SipGate Assist + FrontDesk)
+    
+    Supports TWO webhook sources:
+    1. SipGate Assist API (nested structure: data["call"], data["assist"])
+    2. FrontDesk (flat structure with recording_url, etc.)
     
     Flow:
     1. Telefonnummer-Matching in WeClapp (phone-eq=...)
@@ -1598,73 +1602,140 @@ async def process_call(request: Request):
     
     try:
         data = await request.json()
-        logger.info(f"📞 SipGate Full Payload: {json.dumps(data, ensure_ascii=False)}")
+        logger.info(f"📞 Call Webhook Payload: {json.dumps(data, ensure_ascii=False)[:1000]}")
         
-        # 🎯 SIPGATE ASSIST API STRUCTURE (v1)
-        # Data is nested: data["call"] contains call info, data["assist"] contains transcription
-        call_data = data.get("call", {})
-        assist_data = data.get("assist", {})
-        summary_data = assist_data.get("summary", {})
+        # 🔍 DETECT WEBHOOK SOURCE: SipGate Assist vs FrontDesk
+        is_sipgate_assist = "call" in data and "assist" in data
+        is_frontdesk = "recording_url" in data or "audio_url" in data or "transcription_url" in data
         
-        logger.info("✅ Processing SipGate call with available data")
-        
-        # Extract call direction from nested structure
-        call_direction = call_data.get("direction", "in")  # "in" or "out"
-        # Map SipGate directions to our format
-        call_direction = "inbound" if call_direction == "in" else "outbound"
-        
-        # 🎯 EXTRACT CALL INFO FROM NESTED STRUCTURE
-        call_id = call_data.get("id", "")
-        call_duration = call_data.get("duration", 0) // 1000  # Convert milliseconds to seconds
-        call_start_time = call_data.get("startTime", "")
-        call_end_time = call_data.get("endTime", "")
-        call_users = call_data.get("users", [])
-        
-        # Extract phone numbers from nested call object
-        if call_direction == "outbound":
-            # WE called someone → "to" is the EXTERNAL contact
-            external_number = call_data.get("to", "")
-            our_number = call_data.get("from", "")
+        if is_sipgate_assist:
+            logger.info("✅ Detected: SipGate Assist API webhook")
+            # 🎯 SIPGATE ASSIST API STRUCTURE (v1)
+            call_data = data.get("call", {})
+            assist_data = data.get("assist", {})
+            summary_data = assist_data.get("summary", {})
+        elif is_frontdesk:
+            logger.info("✅ Detected: FrontDesk webhook")
+            # FrontDesk sends flat structure
+            call_data = data  # All data at root level
+            assist_data = {}
+            summary_data = {}
         else:
-            # Someone called US → "from" is the EXTERNAL contact
-            external_number = call_data.get("from", "")
-            our_number = call_data.get("to", "")
+            logger.warning("⚠️ Unknown webhook format - treating as generic call")
+            call_data = data
+            assist_data = {}
+            summary_data = {}
+        
+        logger.info(f"✅ Processing call with source: {'SipGate Assist' if is_sipgate_assist else 'FrontDesk' if is_frontdesk else 'Unknown'}")
+        
+        # Extract call direction (format differs between sources)
+        if is_sipgate_assist:
+            call_direction = call_data.get("direction", "in")  # "in" or "out"
+            call_direction = "inbound" if call_direction == "in" else "outbound"
+        else:
+            # FrontDesk or generic format
+            call_direction = call_data.get("call_direction", call_data.get("direction", "inbound"))
+        
+        # 🎯 EXTRACT CALL INFO (source-aware)
+        if is_sipgate_assist:
+            call_id = call_data.get("id", "")
+            call_duration = call_data.get("duration", 0) // 1000  # SipGate: milliseconds
+            call_start_time = call_data.get("startTime", "")
+            call_end_time = call_data.get("endTime", "")
+            call_users = call_data.get("users", [])
+            
+            # Phone numbers from nested structure
+            if call_direction == "outbound":
+                external_number = call_data.get("to", "")
+                our_number = call_data.get("from", "")
+            else:
+                external_number = call_data.get("from", "")
+                our_number = call_data.get("to", "")
+        else:
+            # FrontDesk format (flat structure)
+            call_id = call_data.get("call_id", call_data.get("id", ""))
+            call_duration = call_data.get("duration", call_data.get("call_duration", 0))
+            call_start_time = call_data.get("start_time", call_data.get("startTime", ""))
+            call_end_time = call_data.get("end_time", call_data.get("endTime", ""))
+            call_users = []
+            
+            # Phone numbers (various field names)
+            external_number = (
+                call_data.get("caller") or 
+                call_data.get("from") or 
+                call_data.get("phone") or
+                call_data.get("caller_number") or
+                ""
+            )
+            our_number = (
+                call_data.get("called") or
+                call_data.get("to") or
+                call_data.get("recipient") or
+                ""
+            )
         
         # Normalize phone format (remove spaces, dashes, brackets)
         phone_normalized = external_number.replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
         
-        # Extract transcription from assist.summary structure
-        call_transcript = summary_data.get("content", "")
-        key_points = summary_data.get("keyPoints", [])
-        topics = summary_data.get("topics", [])
+        # 🎯 EXTRACT TRANSCRIPTION (source-aware)
+        if is_sipgate_assist:
+            # SipGate Assist: nested in assist.summary
+            call_transcript = summary_data.get("content", "")
+            key_points = summary_data.get("keyPoints", [])
+            topics = summary_data.get("topics", [])
+            
+            # Extract SmartAnswers (caller name, company, etc.)
+            call_scenarios = assist_data.get("callScenarios", [])
+            caller_name = ""
+            company_name = ""
+            caller_request = ""
+            
+            for scenario in call_scenarios:
+                smart_answers = scenario.get("smartAnswers", [])
+                for answer_set in smart_answers:
+                    items = answer_set.get("setItems", [])
+                    for item in items:
+                        question = item.get("question", "").lower()
+                        answer = item.get("answer", "")
+                        
+                        if "name" in question and not caller_name:
+                            caller_name = answer
+                        elif "firma" in question or "company" in question:
+                            company_name = answer
+                        elif "anliegen" in question or "anfrage" in question:
+                            caller_request = answer
+        else:
+            # FrontDesk: flat structure
+            call_transcript = (
+                call_data.get("transcription") or
+                call_data.get("transcript") or
+                call_data.get("text") or
+                call_data.get("content") or
+                ""
+            )
+            key_points = call_data.get("key_points", [])
+            topics = call_data.get("topics", [])
+            
+            # Caller details from flat structure
+            caller_name = call_data.get("caller_name", call_data.get("name", ""))
+            company_name = call_data.get("company", call_data.get("company_name", ""))
+            caller_request = call_data.get("request", call_data.get("purpose", ""))
+            
+            # Recording URL (FrontDesk specific)
+            recording_url = (
+                call_data.get("recording_url") or
+                call_data.get("audio_url") or
+                call_data.get("recordingUrl") or
+                ""
+            )
         
-        # Extract SmartAnswers (caller name, company, etc.)
-        call_scenarios = assist_data.get("callScenarios", [])
-        caller_name = ""
-        company_name = ""
-        caller_request = ""
+        # Legacy/additional fields
+        if not is_sipgate_assist and recording_url:
+            logger.info(f"🎙️ FrontDesk Recording: {recording_url}")
         
-        # Parse SmartAnswers for structured data
-        for scenario in call_scenarios:
-            smart_answers = scenario.get("smartAnswers", [])
-            for answer_set in smart_answers:
-                items = answer_set.get("setItems", [])
-                for item in items:
-                    question = item.get("question", "").lower()
-                    answer = item.get("answer", "")
-                    
-                    if "name" in question and not caller_name:
-                        caller_name = answer
-                    elif "firma" in question or "company" in question:
-                        company_name = answer
-                    elif "anliegen" in question or "anfrage" in question:
-                        caller_request = answer
-        
-        # Legacy fields (for backwards compatibility)
         call_status = ""
-        assigned_user = call_users[0] if call_users else ""
+        assigned_user = call_users[0] if call_users and is_sipgate_assist else ""
         user_id = ""
-        recording_url = ""
         notes = ""
         tags = []
         
@@ -1708,6 +1779,9 @@ async def process_call(request: Request):
             content=call_transcript,
             additional_data={
                 **data,
+                # Source identification
+                "webhook_source": "sipgate_assist" if is_sipgate_assist else "frontdesk" if is_frontdesk else "unknown",
+                # Core call data
                 "call_direction": call_direction,
                 "call_duration": call_duration,
                 "call_id": call_id,
@@ -1716,15 +1790,17 @@ async def process_call(request: Request):
                 "phone_normalized": phone_normalized,
                 "external_number": external_number,
                 "our_number": our_number,
-                # SipGate AI extracted data
+                # Extracted contact/company data
                 "caller_name": caller_name,
                 "company_name": company_name,
                 "caller_request": caller_request,
+                # AI/transcription data
                 "key_points": key_points,
                 "topics": topics,
+                "recording_url": recording_url if 'recording_url' in locals() else "",
+                # Legacy fields
                 "assigned_user": assigned_user,
                 "user_id": user_id,
-                "recording_url": recording_url,
                 "notes": notes,
                 "tags": tags
             }
