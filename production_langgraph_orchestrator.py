@@ -138,6 +138,195 @@ logger = logging.getLogger(__name__)
 # ZAPIER NOTIFICATION FUNCTIONS
 # ===============================
 
+def generate_notification_html(notification_data: Dict[str, Any]) -> str:
+    """
+    🎨 Generate complete HTML for email notifications
+    Supports both WEG A (unknown) and WEG B (known) contacts
+    """
+    notification_type = notification_data.get("notification_type", "unknown_contact_action_required")
+    
+    if notification_type == "unknown_contact_action_required":
+        # WEG A: Unknown Contact with Action Buttons
+        sender = notification_data.get("sender", "Unbekannt")
+        sender_display = notification_data.get("sender_display", sender)
+        subject = notification_data.get("subject", "Neue Nachricht")
+        body_preview = notification_data.get("body_preview", "")
+        received_time = notification_data.get("received_time", "")
+        ai_analysis = notification_data.get("ai_analysis", {})
+        action_options = notification_data.get("action_options", [])
+        email_id = notification_data.get("email_id", "unknown")
+        webhook_url = notification_data.get("webhook_reply_url", "")
+        
+        # Build action buttons HTML
+        buttons_html = ""
+        for option in action_options:
+            action = option.get("action", "")
+            label = option.get("label", "")
+            description = option.get("description", "")
+            color_class = {
+                "create_contact": "btn-create",
+                "add_to_existing": "btn-primary",
+                "mark_private": "btn-private",
+                "mark_spam": "btn-spam",
+                "request_info": "btn-info",
+                "report_issue": "btn-secondary"
+            }.get(action, "btn-default")
+            
+            button_url = f"{webhook_url}?action={action}&sender={sender}&email_id={email_id}"
+            
+            buttons_html += f"""
+            <a href="{button_url}" class="button {color_class}">{label}</a>
+            <p style="font-size: 12px; margin: 5px 0;">{description}</p>
+            """
+        
+        html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style>
+    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+    .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+    .header {{ background: #FF6B35; color: white; padding: 20px; border-radius: 5px 5px 0 0; }}
+    .content {{ background: #f9f9f9; padding: 20px; border: 1px solid #ddd; }}
+    .info-box {{ background: white; padding: 15px; margin: 15px 0; border-left: 4px solid #FF6B35; }}
+    .action-buttons {{ margin: 20px 0; }}
+    .button {{ display: inline-block; padding: 12px 24px; margin: 5px; text-decoration: none; border-radius: 5px; font-weight: bold; text-align: center; color: white; }}
+    .btn-create {{ background: #28a745; }}
+    .btn-primary {{ background: #007bff; }}
+    .btn-private {{ background: #6c757d; }}
+    .btn-spam {{ background: #dc3545; }}
+    .btn-info {{ background: #17a2b8; }}
+    .btn-secondary {{ background: #ffc107; color: #333; }}
+    .ai-analysis {{ background: #e7f3ff; padding: 10px; border-radius: 5px; margin: 10px 0; }}
+    .footer {{ text-align: center; padding: 15px; color: #666; font-size: 12px; }}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="header">
+<h2>🆕 Unbekannter Kontakt - Aktion erforderlich</h2>
+</div>
+<div class="content">
+<div class="info-box">
+<h3>📧 Details:</h3>
+<p><strong>Von:</strong> {sender_display}</p>
+<p><strong>Betreff:</strong> {subject}</p>
+<p><strong>Empfangen:</strong> {received_time}</p>
+</div>
+<div class="info-box">
+<h3>📝 Nachricht:</h3>
+<p>{body_preview}</p>
+</div>
+<div class="ai-analysis">
+<h3>🤖 KI-Analyse:</h3>
+<p><strong>Absicht:</strong> {ai_analysis.get('intent', 'unbekannt')}</p>
+<p><strong>Dringlichkeit:</strong> {ai_analysis.get('urgency', 'unbekannt')}</p>
+<p><strong>Stimmung:</strong> {ai_analysis.get('sentiment', 'unbekannt')}</p>
+</div>
+<div class="action-buttons">
+<h3>👆 Wähle eine Aktion:</h3>
+{buttons_html}
+</div>
+</div>
+<div class="footer">
+<p>🤖 Automatisch generiert vom C&D Lead Management System</p>
+<p>Email-ID: {email_id}</p>
+</div>
+</div>
+</body>
+</html>
+"""
+        return html
+    
+    else:
+        # WEG B: Known Contact - Simple notification with feedback button
+        subject = notification_data.get('subject', 'Kontakt verarbeitet')
+        summary = notification_data.get('summary', '')
+        contact_match = notification_data.get('contact_match', {})
+        contact_name = contact_match.get('contact_name', 'Unbekannt')
+        contact_id = contact_match.get('contact_id', '')
+        from_contact = notification_data.get('from', '')
+        content_preview = notification_data.get('content_preview', '')
+        ai_analysis = notification_data.get('ai_analysis', {})
+        action_options = notification_data.get('action_options', [])
+        
+        # Build action buttons HTML
+        buttons_html = ""
+        for option in action_options:
+            action = option.get("action", "")
+            label = option.get("label", "")
+            description = option.get("description", "")
+            url = option.get("url", "")
+            
+            color_class = {
+                "view_in_crm": "btn-info",
+                "report_issue": "btn-secondary"
+            }.get(action, "btn-default")
+            
+            if url:
+                button_url = url
+            else:
+                button_url = f"https://my-langgraph-agent-production.up.railway.app/webhook/feedback?type=wrong_match&contact_id={contact_id}&from={from_contact}"
+            
+            buttons_html += f"""
+            <a href="{button_url}" class="button {color_class}">{label}</a>
+            <p style="font-size: 12px; margin: 5px 0; color: #666;">{description}</p>
+            """
+        
+        return f"""
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style>
+    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+    .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+    .header {{ background: #28a745; color: white; padding: 20px; border-radius: 5px 5px 0 0; }}
+    .content {{ background: #f9f9f9; padding: 20px; border: 1px solid #ddd; }}
+    .info-box {{ background: white; padding: 15px; margin: 15px 0; border-left: 4px solid #28a745; }}
+    .action-buttons {{ margin: 20px 0; }}
+    .button {{ display: inline-block; padding: 12px 24px; margin: 5px; text-decoration: none; border-radius: 5px; font-weight: bold; text-align: center; color: white; }}
+    .btn-info {{ background: #17a2b8; }}
+    .btn-secondary {{ background: #ffc107; color: #333; }}
+    .ai-analysis {{ background: #e7f3ff; padding: 10px; border-radius: 5px; margin: 10px 0; }}
+    .footer {{ text-align: center; padding: 15px; color: #666; font-size: 12px; }}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="header">
+<h2>✅ Kontakt erkannt und verarbeitet</h2>
+</div>
+<div class="content">
+<div class="info-box">
+<h3>👤 Kontakt:</h3>
+<p><strong>{contact_name}</strong></p>
+<p>Von: {from_contact}</p>
+</div>
+<div class="info-box">
+<h3>📝 Nachricht:</h3>
+<p>{content_preview}</p>
+</div>
+<div class="ai-analysis">
+<h3>🤖 Verarbeitung:</h3>
+<p>{summary}</p>
+<p><strong>Absicht:</strong> {ai_analysis.get('intent', 'unbekannt')}</p>
+<p><strong>Dringlichkeit:</strong> {ai_analysis.get('urgency', 'unbekannt')}</p>
+</div>
+<div class="action-buttons">
+<h3>🔗 Aktionen:</h3>
+{buttons_html}
+</div>
+</div>
+<div class="footer">
+<p>🤖 Automatisch generiert vom C&D Lead Management System</p>
+</div>
+</div>
+</body>
+</html>
+"""
+
 async def send_final_notification(processing_result: Dict[str, Any], message_type: str, from_contact: str, content: str):
     """
     🎯 FINAL ZAPIER NOTIFICATION - Email an Markus & Info
@@ -251,6 +440,9 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
             "webhook_reply_url": "https://my-langgraph-agent-production.up.railway.app/webhook/contact-action"
         }
         
+        # 🎨 Generate complete HTML for email
+        notification_data["html_body"] = generate_notification_html(notification_data)
+        
         logger.info(f"⚠️ Sending UNKNOWN CONTACT notification for {from_contact}")
     
     else:
@@ -297,6 +489,9 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
             "subject": f"🤖 C&D AI: {message_type.upper()} von {contact_match.get('contact_name', from_contact)}",
             "summary": f"AI hat {len(processing_result.get('tasks_generated', []))} Tasks erstellt"
         }
+        
+        # 🎨 Generate complete HTML for email
+        notification_data["html_body"] = generate_notification_html(notification_data)
         
         logger.info(f"✅ Sending standard notification for known contact: {contact_match.get('contact_name', from_contact)}")
     
