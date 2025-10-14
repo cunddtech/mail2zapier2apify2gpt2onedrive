@@ -943,12 +943,20 @@ Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
                             data = await response.json()
                             for contact in data.get("result", []):
                                 if contact.get("email", "").lower() != contact_identifier.lower():
+                                    # Safely extract company name (can be string or dict)
+                                    company_data = contact.get("company")
+                                    company_name = None
+                                    if isinstance(company_data, dict):
+                                        company_name = company_data.get("name")
+                                    elif isinstance(company_data, str):
+                                        company_name = company_data
+                                    
                                     potential_matches.append({
                                         "match_type": "domain",
                                         "confidence": 0.8,
                                         "contact_id": str(contact.get("id")),
                                         "contact_name": f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip(),
-                                        "company": contact.get("company", {}).get("name") if contact.get("company") else None,
+                                        "company": company_name,
                                         "existing_identifier": contact.get("email"),
                                         "reason": f"Gleiche Firma (@{domain})"
                                     })
@@ -965,12 +973,20 @@ Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
                             data = await response.json()
                             for contact in data.get("result", []):
                                 if contact.get("phone") and contact.get("phone") != contact_identifier:
+                                    # Safely extract company name (can be string or dict)
+                                    company_data = contact.get("company")
+                                    company_name = None
+                                    if isinstance(company_data, dict):
+                                        company_name = company_data.get("name")
+                                    elif isinstance(company_data, str):
+                                        company_name = company_data
+                                    
                                     potential_matches.append({
                                         "match_type": "phone_prefix",
                                         "confidence": 0.7,
                                         "contact_id": str(contact.get("id")),
                                         "contact_name": f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip(),
-                                        "company": contact.get("company", {}).get("name") if contact.get("company") else None,
+                                        "company": company_name,
                                         "existing_identifier": contact.get("phone"),
                                         "reason": f"Ähnliche Nummer ({contact.get('phone')})"
                                     })
