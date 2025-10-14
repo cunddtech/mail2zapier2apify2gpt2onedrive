@@ -170,27 +170,39 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
                     "existing_contact": match.get("contact_name")
                 })
         
-        # Standard actions
+        # Standard actions (always include "add to existing")
         action_options.extend([
             {
                 "action": "create_contact",
-                "label": "KONTAKT ANLEGEN",
+                "label": "✅ KONTAKT ANLEGEN",
                 "description": "Als neuen Kontakt in WeClapp anlegen"
             },
             {
+                "action": "add_to_existing",
+                "label": "➕ ZU BESTEHENDEM HINZUFÜGEN",
+                "description": "Email/Telefon zu einem bestehenden Kontakt hinzufügen",
+                "requires_search": True
+            },
+            {
                 "action": "mark_private",
-                "label": "PRIVAT MARKIEREN",
+                "label": "🔒 PRIVAT MARKIEREN",
                 "description": "Als private Anfrage markieren (kein CRM-Eintrag)"
             },
             {
                 "action": "mark_spam",
-                "label": "SPAM MARKIEREN",
+                "label": "🚫 SPAM MARKIEREN",
                 "description": "Als Spam markieren und blockieren"
             },
             {
                 "action": "request_info",
-                "label": "INFO ANFORDERN",
+                "label": "📨 INFO ANFORDERN",
                 "description": "Mehr Informationen vom Absender anfordern"
+            },
+            {
+                "action": "report_issue",
+                "label": "🐛 PROBLEM MELDEN",
+                "description": "Fehlverhalten oder fehlende Funktion melden",
+                "color": "secondary"
             }
         ])
         
@@ -243,6 +255,23 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
     
     else:
         # Standard Notification for known contacts
+        # Add feedback/report option even for successful processing
+        standard_actions = [
+            {
+                "action": "view_in_crm",
+                "label": "📋 IN CRM ÖFFNEN",
+                "description": f"Kontakt in WeClapp öffnen",
+                "contact_id": contact_match.get("contact_id"),
+                "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
+            },
+            {
+                "action": "report_issue",
+                "label": "🐛 PROBLEM MELDEN",
+                "description": "Fehlverhalten, falsche Zuordnung oder fehlende Funktion melden",
+                "color": "secondary"
+            }
+        ]
+        
         notification_data = {
             "notification_type": "standard",
             "timestamp": now_berlin().isoformat(),
@@ -258,11 +287,14 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
             "tasks_generated": processing_result.get("tasks_generated", []),
             "processing_complete": processing_result.get("processing_complete", False),
             
+            # Action buttons (including feedback)
+            "action_options": standard_actions,
+            
             # Email Recipients
             "recipients": ["mj@cdtechnologies.de", "info@cdtechnologies.de"],
             
             # Notification Details
-            "subject": f"🤖 C&D AI: {message_type.upper()} von {from_contact}",
+            "subject": f"🤖 C&D AI: {message_type.upper()} von {contact_match.get('contact_name', from_contact)}",
             "summary": f"AI hat {len(processing_result.get('tasks_generated', []))} Tasks erstellt"
         }
         
@@ -1469,9 +1501,10 @@ async def root():
             "/webhook/ai-email",
             "/webhook/ai-call",
             "/webhook/frontdesk",
+            "/webhook/feedback",
             "/webhook/ai-whatsapp"
         ],
-        "version": "1.1.0",
+        "version": "1.2.0",
         "timestamp": now_berlin().isoformat()
     }
 
@@ -1918,6 +1951,73 @@ async def process_frontdesk(request: Request):
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail="Internal server error")
 
+@app.post("/webhook/feedback")
+async def process_feedback(request: Request):
+    """
+    🐛 FEEDBACK & PROBLEM REPORTING
+    
+    Sammelt Feedback von Mitarbeitern zu:
+    - Fehlverhalten des Systems
+    - Falsche Kontakt-Zuordnungen
+    - Fehlende Funktionen
+    - Verbesserungsvorschläge
+    
+    Expected payload:
+    {
+        "type": "bug|feature|improvement|wrong_match",
+        "message": "Beschreibung des Problems",
+        "context": {
+            "email_id": "...",
+            "contact_id": "...",
+            "workflow_path": "..."
+        }
+    }
+    """
+    
+    try:
+        data = await request.json()
+        logger.info(f"🐛 Feedback received: {json.dumps(data, ensure_ascii=False)[:500]}")
+        
+        feedback_type = data.get("type", "general")
+        message = data.get("message", "")
+        context = data.get("context", {})
+        reporter = data.get("reporter", "unknown")
+        
+        # Store in optimization list (simple file-based for now)
+        feedback_entry = {
+            "timestamp": now_berlin().isoformat(),
+            "type": feedback_type,
+            "message": message,
+            "context": context,
+            "reporter": reporter,
+            "status": "new"
+        }
+        
+        # Append to feedback log file
+        import json as json_lib
+        feedback_file = "feedback_log.jsonl"
+        try:
+            with open(feedback_file, "a") as f:
+                f.write(json_lib.dumps(feedback_entry, ensure_ascii=False) + "\n")
+            logger.info(f"✅ Feedback stored in {feedback_file}")
+        except Exception as e:
+            logger.error(f"❌ Failed to write feedback: {e}")
+        
+        # Log to console for immediate visibility
+        logger.info(f"📝 FEEDBACK [{feedback_type}]: {message}")
+        if context:
+            logger.info(f"   Context: {context}")
+        
+        return {
+            "status": "success",
+            "message": "Feedback erfasst - Vielen Dank!",
+            "feedback_id": f"fb-{int(now_berlin().timestamp())}"
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Feedback processing error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 @app.post("/webhook/ai-whatsapp")
 async def process_whatsapp(request: Request):
     """Process incoming WhatsApp message via webhook"""
@@ -2238,7 +2338,8 @@ if __name__ == "__main__":
     print("📡 WEBHOOK ENDPOINTS:")
     print("  - POST /webhook/ai-email")
     print("  - POST /webhook/ai-call")
-    print("  - POST /webhook/frontdesk  🎙️ NEW")
+    print("  - POST /webhook/frontdesk  🎙️")
+    print("  - POST /webhook/feedback   🐛 NEW")
     print("  - POST /webhook/ai-whatsapp")
     print("")
     print("🎯 READY FOR PRODUCTION DEPLOYMENT!")
