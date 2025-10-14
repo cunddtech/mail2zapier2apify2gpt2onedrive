@@ -1467,10 +1467,11 @@ async def root():
         "system": "LangGraph + FastAPI Production",
         "endpoints": [
             "/webhook/ai-email",
-            "/webhook/ai-call", 
+            "/webhook/ai-call",
+            "/webhook/frontdesk",
             "/webhook/ai-whatsapp"
         ],
-        "version": "1.0.0",
+        "version": "1.1.0",
         "timestamp": now_berlin().isoformat()
     }
 
@@ -1817,6 +1818,106 @@ async def process_call(request: Request):
         # ⚠️ SECURITY: Never expose internal error details to client
         raise HTTPException(status_code=500, detail="Internal server error during call processing")
 
+@app.post("/webhook/frontdesk")
+async def process_frontdesk(request: Request):
+    """
+    🎙️ FRONTDESK CALL RECORDING & TRANSCRIPTION
+    
+    Dedicated endpoint for FrontDesk webhooks.
+    Simpler than /webhook/ai-call - no auto-detection needed.
+    
+    Expected FrontDesk payload (flat structure):
+    {
+        "caller": "+49123456789",
+        "transcription": "...",
+        "recording_url": "https://...",
+        "duration": 120,
+        "caller_name": "Max Mustermann",
+        "company": "Beispiel GmbH"
+    }
+    """
+    
+    try:
+        data = await request.json()
+        logger.info(f"🎙️ FrontDesk Webhook: {json.dumps(data, ensure_ascii=False)[:1000]}")
+        
+        # Extract phone number (various field names)
+        phone_number = (
+            data.get("caller") or 
+            data.get("from") or 
+            data.get("phone") or
+            data.get("caller_number") or
+            ""
+        )
+        
+        # Extract transcription
+        transcription = (
+            data.get("transcription") or
+            data.get("transcript") or
+            data.get("text") or
+            data.get("content") or
+            ""
+        )
+        
+        # Extract additional metadata
+        caller_name = data.get("caller_name", data.get("name", ""))
+        company = data.get("company", data.get("company_name", ""))
+        duration = data.get("duration", data.get("call_duration", 0))
+        recording_url = data.get("recording_url", data.get("audio_url", ""))
+        
+        # Log extracted data
+        logger.info(f"📞 FrontDesk Call: {phone_number}")
+        if caller_name:
+            logger.info(f"   📛 Name: {caller_name}")
+        if company:
+            logger.info(f"   🏢 Company: {company}")
+        if duration:
+            logger.info(f"   ⏱️ Duration: {duration}s")
+        if recording_url:
+            logger.info(f"   🎙️ Recording: {recording_url}")
+        
+        # Build enhanced transcript
+        transcript_parts = [transcription] if transcription else ["Keine Transkription verfügbar"]
+        
+        if caller_name:
+            transcript_parts.append(f"\n👤 Anrufer: {caller_name}")
+        if company:
+            transcript_parts.append(f"\n🏢 Firma: {company}")
+        
+        enhanced_transcript = "".join(transcript_parts)
+        
+        # Process through orchestrator
+        result = await orchestrator.process_communication(
+            message_type="call",
+            from_contact=phone_number,
+            content=enhanced_transcript,
+            additional_data={
+                **data,
+                "webhook_source": "frontdesk",
+                "call_direction": data.get("direction", "inbound"),
+                "call_duration": duration,
+                "phone_normalized": phone_number.replace(" ", "").replace("-", "").replace("(", "").replace(")", ""),
+                "caller_name": caller_name,
+                "company_name": company,
+                "recording_url": recording_url
+            }
+        )
+        
+        logger.info(f"✅ FrontDesk call processing complete: {result.get('workflow_path', 'unknown')}")
+        
+        return {
+            "status": "success",
+            "message": "FrontDesk call processed",
+            "workflow_path": result.get("workflow_path"),
+            "phone": phone_number
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ FrontDesk processing error: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 @app.post("/webhook/ai-whatsapp")
 async def process_whatsapp(request: Request):
     """Process incoming WhatsApp message via webhook"""
@@ -2136,7 +2237,8 @@ if __name__ == "__main__":
     print("")
     print("📡 WEBHOOK ENDPOINTS:")
     print("  - POST /webhook/ai-email")
-    print("  - POST /webhook/ai-call") 
+    print("  - POST /webhook/ai-call")
+    print("  - POST /webhook/frontdesk  🎙️ NEW")
     print("  - POST /webhook/ai-whatsapp")
     print("")
     print("🎯 READY FOR PRODUCTION DEPLOYMENT!")

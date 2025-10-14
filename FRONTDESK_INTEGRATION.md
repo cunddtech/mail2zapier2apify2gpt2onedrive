@@ -2,38 +2,38 @@
 
 ## Overview
 
-Der `/webhook/ai-call` Endpoint unterstützt jetzt **ZWEI Webhook-Quellen**:
+**Dedizierter FrontDesk Endpoint** für Call Recording & Transcription.
 
-1. **SipGate Assist API** - AI-generierte Call Summaries mit SmartAnswers
-2. **FrontDesk** - Call Recording & Transcription Service
+Separate URLs für unterschiedliche Call-Quellen:
+1. **SipGate Assist API** → `/webhook/ai-call`
+2. **FrontDesk** → `/webhook/frontdesk` ✨ NEW
 
 ## Webhook URL
 
 ```
-https://my-langgraph-agent-production.up.railway.app/webhook/ai-call
+https://my-langgraph-agent-production.up.railway.app/webhook/frontdesk
 ```
 
-## Auto-Detection
+**Vorteile separater Endpoint:**
+- ✅ Einfachere Payload-Struktur (keine Auto-Detection)
+- ✅ Dediziertes Logging für FrontDesk
+- ✅ Keine Konflikte mit SipGate Format
+- ✅ Einfacheres Testing & Debugging
 
-Der Orchestrator erkennt automatisch die Quelle anhand der Payload-Struktur:
+## Payload Format
 
-### SipGate Assist Detection
+FrontDesk sendet eine **flache JSON-Struktur** (keine verschachtelten Objekte):
+
 ```json
 {
-  "call": {...},
-  "assist": {...}
-}
-```
-→ Erkannt als **SipGate Assist**
-
-### FrontDesk Detection
-```json
-{
+  "caller": "+49123456789",
+  "transcription": "Gesprächstext...",
   "recording_url": "https://...",
-  "transcription": "..."
+  "duration": 120
 }
 ```
-→ Erkannt als **FrontDesk**
+
+**Viel einfacher als SipGate** (keine `call.from` oder `assist.summary` Navigation nötig)!
 
 ## Supported FrontDesk Fields
 
@@ -88,22 +88,23 @@ Der Orchestrator erkennt automatisch die Quelle anhand der Payload-Struktur:
 
 ## Logging
 
-Der Orchestrator loggt die erkannte Quelle:
+Der Orchestrator loggt dediziert für FrontDesk:
 
 ```
-✅ Detected: FrontDesk webhook
-🎙️ FrontDesk Recording: https://...
-📞 Call Details: Direction: inbound | Duration: 173s
-   📞 External: +49634152145 | Our Number: +49211879744313
-   📛 Caller Name: Frau Jäger
+🎙️ FrontDesk Webhook: {"caller": "+49634152145", ...}
+📞 FrontDesk Call: +49634152145
+   📛 Name: Frau Jäger
    🏢 Company: Beispiel GmbH
+   ⏱️ Duration: 173s
+   🎙️ Recording: https://...
+✅ FrontDesk call processing complete: WEG_A
 ```
 
 ## Testing
 
 ### Test with curl
 ```bash
-curl -X POST https://my-langgraph-agent-production.up.railway.app/webhook/ai-call \
+curl -X POST https://my-langgraph-agent-production.up.railway.app/webhook/frontdesk \
   -H "Content-Type: application/json" \
   -d '{
     "caller": "+49123456789",
@@ -117,8 +118,9 @@ curl -X POST https://my-langgraph-agent-production.up.railway.app/webhook/ai-cal
 ```json
 {
   "status": "success",
-  "message": "Call processing complete",
-  "workflow_path": "WEG_A"
+  "message": "FrontDesk call processed",
+  "workflow_path": "WEG_A",
+  "phone": "+49123456789"
 }
 ```
 
@@ -126,10 +128,11 @@ curl -X POST https://my-langgraph-agent-production.up.railway.app/webhook/ai-cal
 
 Konfiguriere in FrontDesk:
 
-1. **Webhook URL**: `https://my-langgraph-agent-production.up.railway.app/webhook/ai-call`
+1. **Webhook URL**: `https://my-langgraph-agent-production.up.railway.app/webhook/frontdesk`
 2. **Method**: `POST`
 3. **Content-Type**: `application/json`
 4. **Trigger**: Nach Transkription fertig
+5. **Authentication**: None (öffentlich erreichbar)
 
 ## Unterschiede: SipGate vs FrontDesk
 
@@ -159,6 +162,30 @@ Bei Problemen:
 
 ---
 
-**Status**: ✅ Implementiert (Commit 6546adf)  
+## Quick Start
+
+**1. Konfiguriere FrontDesk:**
+```
+URL: https://my-langgraph-agent-production.up.railway.app/webhook/frontdesk
+Method: POST
+Content-Type: application/json
+```
+
+**2. Teste manuell:**
+```bash
+curl -X POST https://my-langgraph-agent-production.up.railway.app/webhook/frontdesk \
+  -H "Content-Type: application/json" \
+  -d '{"caller": "+49123456789", "transcription": "Test"}'
+```
+
+**3. Prüfe Railway Logs:**
+```bash
+railway logs --tail 50 | grep "FrontDesk"
+```
+
+---
+
+**Status**: ✅ Implementiert (Dedizierter Endpoint)  
 **Deployed**: Railway Production  
+**URL**: `/webhook/frontdesk`  
 **Last Updated**: 2025-10-14
