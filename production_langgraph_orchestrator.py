@@ -46,7 +46,7 @@ from langchain_core.output_parsers import JsonOutputParser
 
 # FastAPI Production Server
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import Response as FastAPIResponse
+from fastapi.responses import Response as FastAPIResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -1454,30 +1454,37 @@ async def process_email(request: Request):
     
     try:
         data = await request.json()
-        logger.info(f"📧 Email webhook triggered: {json.dumps(data, ensure_ascii=False)[:500]}")
-        logger.info(f"🔍 DEBUG: message_id={data.get('message_id')}, id={data.get('id')}, user_email={data.get('user_email')}, mailbox={data.get('mailbox')}")
-        
         message_id = data.get("message_id") or data.get("id")
         user_email = data.get("user_email") or data.get("mailbox") or data.get("recipient")
         
-        # ⚡ IMMEDIATE RESPONSE to avoid Zapier timeout
-        # Process in background using asyncio.create_task
+        # ⚡ IMMEDIATE RESPONSE - No logging before response!
+        # Fire-and-forget background task
         import asyncio
         asyncio.create_task(process_email_background(data, message_id, user_email))
         
-        return {
-            "status": "accepted",
-            "message": "Email processing started in background",
-            "message_id": message_id
-        }
+        # Return immediately (< 1 second)
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "accepted",
+                "message_id": message_id
+            }
+        )
         
     except Exception as e:
-        logger.error(f"Email webhook error: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        # Even errors return fast
+        return JSONResponse(
+            status_code=200,
+            content={"status": "error", "error": str(e)}
+        )
 
 async def process_email_background(data: dict, message_id: str, user_email: str):
     """Background task to process email without blocking Zapier webhook"""
     try:
+        # NOW we can log (after response sent to Zapier)
+        logger.info(f"📧 Email webhook data: message_id={message_id}, user_email={user_email}")
+        logger.info(f"🔍 DEBUG: Full data keys: {list(data.keys())}")
+        
         # If message_id provided → Load full email from Graph API
         if message_id and user_email:
             logger.info(f"🔍 Loading full email via Graph API: message_id={message_id}, mailbox={user_email}")
