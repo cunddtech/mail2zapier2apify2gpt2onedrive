@@ -176,7 +176,7 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
             
             buttons_html += f"""
             <a href="{button_url}" class="button {color_class}">{label}</a>
-            <p style="font-size: 12px; margin: 5px 0;">{description}</p>
+            <p class="button-desc">{description}</p>
             """
         
         html = f"""
@@ -185,27 +185,41 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <style>
-    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-    .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-    .header {{ background: #FF6B35; color: white; padding: 20px; border-radius: 5px 5px 0 0; }}
-    .content {{ background: #f9f9f9; padding: 20px; border: 1px solid #ddd; }}
-    .info-box {{ background: white; padding: 15px; margin: 15px 0; border-left: 4px solid #FF6B35; }}
-    .action-buttons {{ margin: 20px 0; }}
-    .button {{ display: inline-block; padding: 12px 24px; margin: 5px; text-decoration: none; border-radius: 5px; font-weight: bold; text-align: center; color: white; }}
-    .btn-create {{ background: #28a745; }}
-    .btn-primary {{ background: #007bff; }}
-    .btn-private {{ background: #6c757d; }}
-    .btn-spam {{ background: #dc3545; }}
-    .btn-info {{ background: #17a2b8; }}
-    .btn-secondary {{ background: #ffc107; color: #333; }}
-    .ai-analysis {{ background: #e7f3ff; padding: 10px; border-radius: 5px; margin: 10px 0; }}
-    .footer {{ text-align: center; padding: 15px; color: #666; font-size: 12px; }}
+    body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #2C3E50; background: linear-gradient(135deg, #E8F5F7 0%, #FFF4E6 100%); }}
+    .container {{ max-width: 650px; margin: 20px auto; padding: 0; background: white; border-radius: 15px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); overflow: hidden; }}
+    .header {{ background: linear-gradient(135deg, #4ECDC4 0%, #44A08D 100%); color: white; padding: 30px; text-align: center; }}
+    .header h2 {{ margin: 0; font-size: 24px; text-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+    .content {{ background: #FFFFFF; padding: 30px; }}
+    .info-box {{ background: linear-gradient(135deg, #FFF9E6 0%, #FFE8CC 100%); padding: 20px; margin: 20px 0; border-radius: 10px; border-left: 5px solid #FFB84D; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }}
+    .info-box h3 {{ color: #E67E22; margin-top: 0; font-size: 18px; }}
+    .info-box p {{ color: #34495E; margin: 8px 0; }}
+    .action-buttons {{ margin: 30px 0; text-align: center; }}
+    .action-buttons h3 {{ color: #2C3E50; margin-bottom: 20px; }}
+    .button {{ display: inline-block; padding: 14px 28px; margin: 8px 5px; text-decoration: none; border-radius: 25px; font-weight: bold; text-align: center; transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }}
+    .btn-create {{ background: linear-gradient(135deg, #52C234 0%, #47A025 100%); color: white; }}
+    .btn-create:hover {{ box-shadow: 0 6px 16px rgba(82,194,52,0.4); transform: translateY(-2px); }}
+    .btn-primary {{ background: linear-gradient(135deg, #3498DB 0%, #2980B9 100%); color: white; }}
+    .btn-primary:hover {{ box-shadow: 0 6px 16px rgba(52,152,219,0.4); transform: translateY(-2px); }}
+    .btn-private {{ background: linear-gradient(135deg, #A29BFE 0%, #6C5CE7 100%); color: white; }}
+    .btn-private:hover {{ box-shadow: 0 6px 16px rgba(162,155,254,0.4); transform: translateY(-2px); }}
+    .btn-spam {{ background: linear-gradient(135deg, #FF7675 0%, #D63031 100%); color: white; }}
+    .btn-spam:hover {{ box-shadow: 0 6px 16px rgba(255,118,117,0.4); transform: translateY(-2px); }}
+    .btn-info {{ background: linear-gradient(135deg, #74B9FF 0%, #0984E3 100%); color: white; }}
+    .btn-info:hover {{ box-shadow: 0 6px 16px rgba(116,185,255,0.4); transform: translateY(-2px); }}
+    .btn-secondary {{ background: linear-gradient(135deg, #FFEAA7 0%, #FDCB6E 100%); color: #2C3E50; }}
+    .btn-secondary:hover {{ box-shadow: 0 6px 16px rgba(255,234,167,0.4); transform: translateY(-2px); }}
+    .ai-analysis {{ background: linear-gradient(135deg, #DFE6E9 0%, #B2BEC3 100%); padding: 20px; border-radius: 10px; margin: 20px 0; border-left: 5px solid #74B9FF; }}
+    .ai-analysis h3 {{ color: #0984E3; margin-top: 0; font-size: 18px; }}
+    .ai-analysis p {{ color: #2C3E50; margin: 8px 0; }}
+    .footer {{ text-align: center; padding: 20px; background: linear-gradient(135deg, #F8F9FA 0%, #E9ECEF 100%); color: #7F8C8D; font-size: 13px; border-radius: 0 0 15px 15px; }}
+    .button-desc {{ font-size: 12px; margin: 5px 0 15px 0; color: #7F8C8D; }}
+    strong {{ color: #2C3E50; }}
 </style>
 </head>
 <body>
 <div class="container">
 <div class="header">
-<h2>🆕 Unbekannter Kontakt - Aktion erforderlich</h2>
+<h2>�️ Unbekannter Kontakt - Aktion erforderlich</h2>
 </div>
 <div class="content">
 <div class="info-box">
@@ -271,7 +285,7 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
             
             buttons_html += f"""
             <a href="{button_url}" class="button {color_class}">{label}</a>
-            <p style="font-size: 12px; margin: 5px 0; color: #666;">{description}</p>
+            <p class="button-desc">{description}</p>
             """
         
         return f"""
@@ -280,17 +294,27 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <style>
-    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-    .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-    .header {{ background: #28a745; color: white; padding: 20px; border-radius: 5px 5px 0 0; }}
-    .content {{ background: #f9f9f9; padding: 20px; border: 1px solid #ddd; }}
-    .info-box {{ background: white; padding: 15px; margin: 15px 0; border-left: 4px solid #28a745; }}
-    .action-buttons {{ margin: 20px 0; }}
-    .button {{ display: inline-block; padding: 12px 24px; margin: 5px; text-decoration: none; border-radius: 5px; font-weight: bold; text-align: center; color: white; }}
-    .btn-info {{ background: #17a2b8; }}
-    .btn-secondary {{ background: #ffc107; color: #333; }}
-    .ai-analysis {{ background: #e7f3ff; padding: 10px; border-radius: 5px; margin: 10px 0; }}
-    .footer {{ text-align: center; padding: 15px; color: #666; font-size: 12px; }}
+    body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #2C3E50; background: linear-gradient(135deg, #E8F5F7 0%, #FFF4E6 100%); }}
+    .container {{ max-width: 650px; margin: 20px auto; padding: 0; background: white; border-radius: 15px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); overflow: hidden; }}
+    .header {{ background: linear-gradient(135deg, #55EFC4 0%, #00B894 100%); color: white; padding: 30px; text-align: center; }}
+    .header h2 {{ margin: 0; font-size: 24px; text-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+    .content {{ background: #FFFFFF; padding: 30px; }}
+    .info-box {{ background: linear-gradient(135deg, #E8F8F5 0%, #D1F2EB 100%); padding: 20px; margin: 20px 0; border-radius: 10px; border-left: 5px solid #00B894; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }}
+    .info-box h3 {{ color: #00B894; margin-top: 0; font-size: 18px; }}
+    .info-box p {{ color: #34495E; margin: 8px 0; }}
+    .action-buttons {{ margin: 30px 0; text-align: center; }}
+    .action-buttons h3 {{ color: #2C3E50; margin-bottom: 20px; }}
+    .button {{ display: inline-block; padding: 14px 28px; margin: 8px 5px; text-decoration: none; border-radius: 25px; font-weight: bold; text-align: center; transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }}
+    .btn-info {{ background: linear-gradient(135deg, #74B9FF 0%, #0984E3 100%); color: white; }}
+    .btn-info:hover {{ box-shadow: 0 6px 16px rgba(116,185,255,0.4); transform: translateY(-2px); }}
+    .btn-secondary {{ background: linear-gradient(135deg, #FFEAA7 0%, #FDCB6E 100%); color: #2C3E50; }}
+    .btn-secondary:hover {{ box-shadow: 0 6px 16px rgba(255,234,167,0.4); transform: translateY(-2px); }}
+    .ai-analysis {{ background: linear-gradient(135deg, #DFE6E9 0%, #B2BEC3 100%); padding: 20px; border-radius: 10px; margin: 20px 0; border-left: 5px solid #74B9FF; }}
+    .ai-analysis h3 {{ color: #0984E3; margin-top: 0; font-size: 18px; }}
+    .ai-analysis p {{ color: #2C3E50; margin: 8px 0; }}
+    .footer {{ text-align: center; padding: 20px; background: linear-gradient(135deg, #F8F9FA 0%, #E9ECEF 100%); color: #7F8C8D; font-size: 13px; border-radius: 0 0 15px 15px; }}
+    .button-desc {{ font-size: 12px; margin: 5px 0 15px 0; color: #7F8C8D; }}
+    strong {{ color: #2C3E50; }}
 </style>
 </head>
 <body>
