@@ -194,14 +194,36 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
             }
         ])
         
+        # Build subject and body based on message type
+        if message_type == "call":
+            call_data = processing_result.get("additional_data", {})
+            call_direction = call_data.get("call_direction", "inbound")
+            call_duration = call_data.get("call_duration", 0)
+            caller_name = call_data.get("caller_name", "")
+            phone = from_contact or "Unbekannt"
+            
+            subject = f"CALL: Anruf {call_direction} - {phone}"
+            if caller_name:
+                subject += f" ({caller_name})"
+            
+            sender_display = f"{caller_name} ({phone})" if caller_name else phone
+        elif message_type == "email":
+            subject = f"EMAIL: {content[:80]}"
+            sender_display = from_contact
+        else:
+            subject = f"{message_type.upper()}: {content[:100]}"
+            sender_display = from_contact
+        
         notification_data = {
             "notification_type": "unknown_contact_action_required",
             "email_id": f"railway-{now_berlin().timestamp()}",
             "sender": from_contact,
             "sender_name": processing_result.get("sender_name", "Unbekannt"),
-            "subject": f"{message_type.upper()}: {content[:100]}",
+            "sender_display": sender_display,
+            "subject": subject,
             "body_preview": content[:500] + "..." if len(content) > 500 else content,
             "received_time": now_berlin().isoformat(),
+            "message_type": message_type,
             
             # AI Analysis (flattened for Zapier)
             "ai_analysis": processing_result.get("ai_analysis", {}),
@@ -1562,84 +1584,106 @@ async def process_call(request: Request):
         data = await request.json()
         logger.info(f"📞 SipGate Full Payload: {json.dumps(data, ensure_ascii=False)}")
         
-        # 🎯 SIPGATE SENDS ALL DATA IN ONE EVENT!
-        # No separate "hangup" event - transcription ("Summary") is in the FIRST POST!
+        # 🎯 SIPGATE ASSIST API STRUCTURE (v1)
+        # Data is nested: data["call"] contains call info, data["assist"] contains transcription
+        call_data = data.get("call", {})
+        assist_data = data.get("assist", {})
+        summary_data = assist_data.get("summary", {})
+        
         logger.info("✅ Processing SipGate call with available data")
         
-        # Extract call direction FIRST (determines logic)
-        call_direction = data.get("direction", "inbound")  # inbound or outbound
+        # Extract call direction from nested structure
+        call_direction = call_data.get("direction", "in")  # "in" or "out"
+        # Map SipGate directions to our format
+        call_direction = "inbound" if call_direction == "in" else "outbound"
         
-        # 🎯 EXTRACT ALL AVAILABLE SIPGATE DATA
-        # Basic call info
-        call_status = data.get("call_status", data.get("status", ""))
-        call_duration = data.get("call_duration", data.get("duration", 0))
-        call_timestamp = data.get("timestamp", now_berlin().isoformat())
+        # 🎯 EXTRACT CALL INFO FROM NESTED STRUCTURE
+        call_id = call_data.get("id", "")
+        call_duration = call_data.get("duration", 0) // 1000  # Convert milliseconds to seconds
+        call_start_time = call_data.get("startTime", "")
+        call_end_time = call_data.get("endTime", "")
+        call_users = call_data.get("users", [])
         
-        # Contact info from SipGate CRM (if available)
-        caller_name = data.get("caller_name", data.get("contact_name", data.get("name", "")))
-        company_name = data.get("company", data.get("company_name", ""))
-        
-        # Assigned user/employee (which team member)
-        assigned_user = data.get("user", data.get("username", ""))
-        user_id = data.get("userId", data.get("user_id", ""))
-        
-        # Recording & Notes
-        recording_url = data.get("recording_url", data.get("recordingUrl", ""))
-        notes = data.get("notes", data.get("comment", ""))
-        tags = data.get("tags", [])
-        
-        # 🎯 FIX: OUTBOUND vs INBOUND caller logic
+        # Extract phone numbers from nested call object
         if call_direction == "outbound":
             # WE called someone → "to" is the EXTERNAL contact
-            external_number = data.get("to") or data.get("recipient") or data.get("callee") or ""
-            our_number = data.get("from") or data.get("caller") or ""
+            external_number = call_data.get("to", "")
+            our_number = call_data.get("from", "")
         else:
             # Someone called US → "from" is the EXTERNAL contact
-            external_number = (
-                data.get("caller") or          # Standard SipGate field
-                data.get("callerNumber") or     # Alternative field
-                data.get("remote") or           # Remote party
-                data.get("from") or             # Fallback
-                ""
-            )
-            our_number = (
-                data.get("to") or 
-                data.get("recipient") or 
-                data.get("callee") or
-                data.get("called") or
-                ""
-            )
+            external_number = call_data.get("from", "")
+            our_number = call_data.get("to", "")
         
         # Normalize phone format (remove spaces, dashes, brackets)
         phone_normalized = external_number.replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
         
-        # Extract transcription (SipGate might send in different fields)
-        call_transcript = (
-            data.get("transcription") or 
-            data.get("transcript") or 
-            data.get("Summary") or  # Seen in your payload!
-            data.get("summary") or
-            ""
-        )
+        # Extract transcription from assist.summary structure
+        call_transcript = summary_data.get("content", "")
+        key_points = summary_data.get("keyPoints", [])
+        topics = summary_data.get("topics", [])
+        
+        # Extract SmartAnswers (caller name, company, etc.)
+        call_scenarios = assist_data.get("callScenarios", [])
+        caller_name = ""
+        company_name = ""
+        caller_request = ""
+        
+        # Parse SmartAnswers for structured data
+        for scenario in call_scenarios:
+            smart_answers = scenario.get("smartAnswers", [])
+            for answer_set in smart_answers:
+                items = answer_set.get("setItems", [])
+                for item in items:
+                    question = item.get("question", "").lower()
+                    answer = item.get("answer", "")
+                    
+                    if "name" in question and not caller_name:
+                        caller_name = answer
+                    elif "firma" in question or "company" in question:
+                        company_name = answer
+                    elif "anliegen" in question or "anfrage" in question:
+                        caller_request = answer
+        
+        # Legacy fields (for backwards compatibility)
+        call_status = ""
+        assigned_user = call_users[0] if call_users else ""
+        user_id = ""
+        recording_url = ""
+        notes = ""
+        tags = []
         
         # 📊 LOG ALL EXTRACTED DATA
         logger.info(f"📞 Call Details:")
-        logger.info(f"   Direction: {call_direction} | Status: {call_status} | Duration: {call_duration}s")
-        logger.info(f"   External: {phone_normalized} | Our Number: {our_number}")
+        logger.info(f"   Direction: {call_direction} | Duration: {call_duration}s | Call ID: {call_id}")
+        logger.info(f"   📞 External: {phone_normalized} | Our Number: {our_number}")
         if caller_name:
             logger.info(f"   📛 Caller Name: {caller_name}")
         if company_name:
             logger.info(f"   🏢 Company: {company_name}")
+        if caller_request:
+            logger.info(f"   💬 Request: {caller_request[:100]}...")
         if assigned_user:
-            logger.info(f"   👤 Assigned to: {assigned_user} ({user_id})")
-        if recording_url:
-            logger.info(f"   🎙️ Recording: {recording_url}")
-        if tags:
-            logger.info(f"   🏷️ Tags: {', '.join(tags) if isinstance(tags, list) else tags}")
+            logger.info(f"   👤 Assigned to: {assigned_user}")
+        if key_points:
+            logger.info(f"   🔑 Key Points: {len(key_points)} items")
+        if topics:
+            logger.info(f"   🏷️ Topics: {', '.join(topics)}")
         
-        # Check if transcript is available
+        # Build comprehensive transcript for AI analysis
         if not call_transcript:
             call_transcript = f"Anruf {call_direction} - Dauer: {call_duration}s - Keine Transkription verfügbar"
+        else:
+            # Enhance transcript with structured data
+            transcript_parts = [call_transcript]
+            
+            if caller_name:
+                transcript_parts.append(f"\n👤 Anrufer: {caller_name}")
+            if company_name:
+                transcript_parts.append(f"\n🏢 Firma: {company_name}")
+            if key_points:
+                transcript_parts.append(f"\n\n🔑 Wichtige Punkte:\n" + "\n".join(f"- {point}" for point in key_points))
+            
+            call_transcript = "".join(transcript_parts)
         
         # Process through orchestrator (includes phone matching)
         result = await orchestrator.process_communication(
@@ -1650,12 +1694,18 @@ async def process_call(request: Request):
                 **data,
                 "call_direction": call_direction,
                 "call_duration": call_duration,
-                "call_timestamp": call_timestamp,
-                "call_status": call_status,
+                "call_id": call_id,
+                "call_start_time": call_start_time,
+                "call_end_time": call_end_time,
                 "phone_normalized": phone_normalized,
-                # SipGate CRM data (if available)
+                "external_number": external_number,
+                "our_number": our_number,
+                # SipGate AI extracted data
                 "caller_name": caller_name,
                 "company_name": company_name,
+                "caller_request": caller_request,
+                "key_points": key_points,
+                "topics": topics,
                 "assigned_user": assigned_user,
                 "user_id": user_id,
                 "recording_url": recording_url,
