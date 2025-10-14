@@ -227,6 +227,7 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
 <p><strong>Von:</strong> {sender_display}</p>
 <p><strong>Betreff:</strong> {subject}</p>
 <p><strong>Empfangen:</strong> {received_time}</p>
+{f'<p><strong>📎 Anhänge:</strong> {notification_data.get("attachments_count", 0)} Datei(en)</p>' if notification_data.get("attachments_count", 0) > 0 else ''}
 </div>
 <div class="info-box">
 <h3>📝 Nachricht:</h3>
@@ -452,6 +453,10 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
             
             # AI Analysis (flattened for Zapier)
             "ai_analysis": processing_result.get("ai_analysis", {}),
+            
+            # Attachments Info
+            "attachments_count": processing_result.get("attachments_count", 0),
+            "has_attachments": processing_result.get("has_attachments", False),
             
             # Potential Matches (if any)
             "potential_matches": potential_matches,
