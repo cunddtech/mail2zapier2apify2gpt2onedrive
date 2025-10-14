@@ -82,15 +82,20 @@ async def get_graph_token_mail():
     }
     
     try:
+        logger.info(f"🔐 Requesting token: tenant={tenant_id[:8]}..., client={client_id[:8]}...")
         async with httpx.AsyncClient() as client:
             response = await client.post(url, headers=headers, data=data)
             if response.status_code == 200:
+                logger.info("✅ Graph API token obtained successfully")
                 return response.json().get("access_token")
             else:
-                logger.error(f"❌ Token error: {response.status_code}")
+                error_body = response.text
+                logger.error(f"❌ Token error {response.status_code}: {error_body}")
                 return None
     except Exception as e:
         logger.error(f"❌ Token exception: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return None
 
 async def fetch_email_details_with_attachments(user_email, message_id, access_token):
