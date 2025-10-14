@@ -52,6 +52,7 @@ import uvicorn
 
 # HTTP Client für API Calls
 import aiohttp
+import httpx
 import logging
 
 # SQLite Database für Contact Cache
