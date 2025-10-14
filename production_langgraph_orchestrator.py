@@ -1822,7 +1822,8 @@ async def process_email_background(data: dict, message_id: str, user_email: str)
                     "body": body,
                     "body_type": body_type,
                     "attachments": attachments,
-                    "has_attachments": len(attachments) > 0
+                    "has_attachments": len(attachments) > 0,
+                    "attachments_count": len(attachments)
                 }
             )
             logger.info(f"✅ Email processing complete: {result.get('workflow_path', 'unknown')}")
