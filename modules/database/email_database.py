@@ -28,7 +28,33 @@ def initialize_database():
         current_stage TEXT,
         gpt_status_suggestion TEXT,
         status_deviation BOOLEAN,
-        remarks TEXT
+        remarks TEXT,
+        -- Phase 2 Extensions
+        message_type TEXT,
+        direction TEXT,
+        workflow_path TEXT,
+        ai_intent TEXT,
+        ai_urgency TEXT,
+        ai_sentiment TEXT,
+        attachments_count INTEGER DEFAULT 0,
+        processing_timestamp TEXT,
+        processing_duration_ms INTEGER
+    )
+    """)
+    
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS attachments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email_id INTEGER,
+        filename TEXT,
+        content_type TEXT,
+        size_bytes INTEGER,
+        document_type TEXT,
+        ocr_route TEXT,
+        ocr_text TEXT,
+        ocr_structured_data TEXT,
+        processing_timestamp TEXT,
+        FOREIGN KEY (email_id) REFERENCES email_data (id)
     )
     """)
 

@@ -827,6 +827,88 @@ class AITask:
     task_type: str  # "follow_up", "quote", "support", "meeting"
     contact_id: Optional[str] = None
 
+async def save_to_database(
+    processing_result: Dict,
+    message_type: str,
+    from_contact: str,
+    content: str,
+    final_state: Dict
+):
+    """💾 Save processing results to database"""
+    import asyncio
+    
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _save_to_db_sync, processing_result, message_type, from_contact, content, final_state)
+    except Exception as e:
+        logger.error(f"❌ DB save error: {e}")
+        raise
+
+
+def _save_to_db_sync(processing_result, message_type, from_contact, content, final_state):
+    """Synchronous database operations"""
+    import sqlite3
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        ai_analysis = processing_result.get("ai_analysis", {})
+        additional_data = final_state.get("additional_data", {})
+        
+        cursor.execute("""
+        INSERT INTO email_data (
+            subject, sender, recipient, received_date, gpt_result,
+            message_type, direction, workflow_path,
+            ai_intent, ai_urgency, ai_sentiment,
+            attachments_count, processing_timestamp
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            ai_analysis.get("email_subject", content[:200]),
+            from_contact,
+            "mj@cdtechnologies.de",
+            now_berlin().isoformat(),
+            json.dumps(ai_analysis, ensure_ascii=False),
+            message_type,
+            additional_data.get("direction", "incoming"),
+            processing_result.get("workflow_path"),
+            ai_analysis.get("intent"),
+            ai_analysis.get("urgency"),
+            ai_analysis.get("sentiment"),
+            processing_result.get("attachments_count", 0),
+            now_berlin().isoformat()
+        ))
+        
+        email_id = cursor.lastrowid
+        
+        # Insert attachments
+        for att in processing_result.get("attachment_results", []):
+            cursor.execute("""
+            INSERT INTO attachments (
+                email_id, filename, content_type, size_bytes,
+                document_type, ocr_route, ocr_text, ocr_structured_data,
+                processing_timestamp
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                email_id,
+                att.get("filename"),
+                att.get("type"),
+                att.get("size"),
+                att.get("document_type"),
+                att.get("ocr_route"),
+                att.get("ocr_text", "")[:1000],
+                json.dumps(att.get("structured_data", {}), ensure_ascii=False),
+                now_berlin().isoformat()
+            ))
+        
+        conn.commit()
+        logger.info(f"✅ Saved email {email_id} with {len(processing_result.get('attachment_results', []))} attachments")
+    except Exception as e:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 # ===============================
 # PRODUCTION AI ORCHESTRATOR
 # ===============================
@@ -1781,6 +1863,14 @@ Antworten Sie mit den erforderlichen Kontakt-Details oder markieren Sie als "Pri
                 processing_result["notification_sent"] = False
                 processing_result["notification_error"] = str(notification_error)
             
+            # 💾 SAVE TO DATABASE
+            try:
+                await save_to_database(processing_result, message_type, from_contact, content, final_state)
+                logger.info("✅ Data saved to database")
+            except Exception as db_error:
+                logger.error(f"❌ Database save error: {db_error}")
+                # Don't fail the whole process if DB save fails
+            
             return processing_result
             
         except Exception as e:
@@ -2055,23 +2145,105 @@ async def process_attachment_ocr(
     result = {"text": "", "structured": {}, "route": "none"}
     
     try:
-        # For now, return placeholder (will integrate PDF.co in next step)
+        import httpx
+        import base64
+        
+        pdfco_api_key = os.getenv("PDFCO_API_KEY")
+        if not pdfco_api_key:
+            logger.warning("⚠️ PDFCO_API_KEY not found, using placeholder")
+            result["route"] = f"{document_type}_placeholder"
+            result["text"] = f"[OCR Placeholder - PDFCO_API_KEY missing]"
+            return result
+        
         logger.info(f"🔍 OCR Route: {document_type} for {filename}")
         
-        # TODO: Implement PDF.co calls
-        # if document_type == "invoice":
-        #     result = await pdfco_invoice_parser(file_bytes)
-        # elif document_type == "delivery_note":
-        #     result = await pdfco_handwriting_ocr(file_bytes)
-        # else:
-        #     result = await pdfco_standard_ocr(file_bytes)
+        # Convert file_bytes to base64
+        file_base64 = base64.b64encode(file_bytes).decode('utf-8')
         
-        result["route"] = f"{document_type}_ocr"
-        result["text"] = f"[OCR Placeholder for {filename} - Type: {document_type}]"
+        # Choose PDF.co route based on document type
+        if document_type == "invoice":
+            # PDF.co Invoice Parser
+            logger.info("📊 Using PDF.co Invoice Parser...")
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    "https://api.pdf.co/v1/pdf/convert/to/json",
+                    headers={"x-api-key": pdfco_api_key},
+                    json={"file": file_base64, "inline": True, "async": False}
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("error") == False:
+                        body = data.get("body", {})
+                        result["text"] = json.dumps(body, ensure_ascii=False)[:500]
+                        result["structured"] = {
+                            "invoice_number": body.get("invoiceNumber", ""),
+                            "total_amount": body.get("total", ""),
+                            "vendor_name": body.get("companyName", ""),
+                            "invoice_date": body.get("invoiceDate", ""),
+                            "due_date": body.get("dueDate", "")
+                        }
+                        result["route"] = "invoice_ocr"
+                        logger.info(f"✅ Invoice: {result['structured'].get('invoice_number', 'N/A')}")
+                    else:
+                        result["text"] = f"[OCR Error: {data.get('message')}]"
+                        result["route"] = "invoice_ocr_failed"
+        
+        elif document_type == "delivery_note":
+            # PDF.co Handwriting OCR
+            logger.info("✍️ Using PDF.co Handwriting OCR...")
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    "https://api.pdf.co/v1/pdf/convert/to/text",
+                    headers={"x-api-key": pdfco_api_key},
+                    json={
+                        "file": file_base64,
+                        "inline": True,
+                        "async": False,
+                        "OCRLanguage": "German",
+                        "OCRMode": "TextFromImagesAndVectorGraphicsAndText"
+                    }
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("error") == False:
+                        result["text"] = data.get("body", "")[:500]
+                        result["route"] = "handwriting_ocr"
+                        logger.info(f"✅ Handwriting OCR: {len(result['text'])} chars")
+                    else:
+                        result["text"] = f"[OCR Error: {data.get('message')}]"
+                        result["route"] = "handwriting_ocr_failed"
+        
+        else:
+            # PDF.co Standard OCR
+            logger.info("📄 Using PDF.co Standard OCR...")
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    "https://api.pdf.co/v1/pdf/convert/to/text",
+                    headers={"x-api-key": pdfco_api_key},
+                    json={
+                        "file": file_base64,
+                        "inline": True,
+                        "async": False,
+                        "OCRLanguage": "German"
+                    }
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("error") == False:
+                        result["text"] = data.get("body", "")[:500]
+                        result["route"] = "standard_ocr"
+                        logger.info(f"✅ Standard OCR: {len(result['text'])} chars")
+                    else:
+                        result["text"] = f"[OCR Error: {data.get('message')}]"
+                        result["route"] = "standard_ocr_failed"
         
     except Exception as e:
         logger.error(f"❌ OCR error for {filename}: {e}")
-        result["error"] = str(e)
+        result["text"] = f"[OCR Exception: {str(e)}]"
+        result["route"] = "ocr_exception"
     
     return result
 
