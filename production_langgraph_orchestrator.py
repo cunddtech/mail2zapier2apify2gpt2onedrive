@@ -450,7 +450,16 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
             
             sender_display = f"{caller_name} ({phone})" if caller_name else phone
         elif message_type == "email":
-            subject = f"EMAIL: {content[:80]}"
+            # Get actual email subject from processing_result if available
+            email_subject = processing_result.get("ai_analysis", {}).get("email_subject", content[:80])
+            attachments_count = processing_result.get("attachments_count", 0)
+            
+            # Add attachment count to subject if present
+            if attachments_count > 0:
+                subject = f"EMAIL (📎 {attachments_count}): {email_subject}"
+            else:
+                subject = f"EMAIL: {email_subject}"
+            
             sender_display = from_contact
         else:
             subject = f"{message_type.upper()}: {content[:100]}"
