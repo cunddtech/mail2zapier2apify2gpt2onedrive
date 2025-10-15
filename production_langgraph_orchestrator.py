@@ -157,6 +157,13 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
         email_id = notification_data.get("email_id", "unknown")
         webhook_url = notification_data.get("webhook_reply_url", "")
         
+        # Build attachments HTML if present
+        attachments_count = notification_data.get("attachments_count", 0)
+        if attachments_count > 0:
+            attachments_html = f'<p><strong>📎 Anhänge:</strong> {attachments_count} Datei(en)</p>'
+        else:
+            attachments_html = ''
+        
         # Build action buttons HTML
         buttons_html = ""
         for option in action_options:
@@ -227,7 +234,7 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
 <p><strong>Von:</strong> {sender_display}</p>
 <p><strong>Betreff:</strong> {subject}</p>
 <p><strong>Empfangen:</strong> {received_time}</p>
-{f'<p><strong>📎 Anhänge:</strong> {notification_data.get("attachments_count", 0)} Datei(en)</p>' if notification_data.get("attachments_count", 0) > 0 else ''}
+{attachments_html}
 </div>
 <div class="info-box">
 <h3>📝 Nachricht:</h3>
