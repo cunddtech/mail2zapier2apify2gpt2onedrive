@@ -491,6 +491,13 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
         # 🔍 DEBUG: Log attachment info before sending
         logger.info(f"📎 DEBUG notification_data: attachments_count={notification_data.get('attachments_count')}, has_attachments={notification_data.get('has_attachments')}")
         
+        # 🔍 DEBUG: Check if html_body contains attachment line
+        html_body = notification_data.get("html_body", "")
+        if "Anhänge:" in html_body:
+            logger.info(f"✅ notification_data['html_body'] CONTAINS 'Anhänge:' before Zapier send")
+        else:
+            logger.warning(f"❌ notification_data['html_body'] does NOT contain 'Anhänge:' before Zapier send!")
+        
         logger.info(f"⚠️ Sending UNKNOWN CONTACT notification for {from_contact}")
     
     else:
