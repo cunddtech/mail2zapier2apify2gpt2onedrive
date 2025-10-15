@@ -262,6 +262,12 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
 </body>
 </html>
 """
+        # 🔍 DEBUG: Check if attachments_html is in the generated HTML
+        if "Anhänge:" in html:
+            logger.info(f"✅ HTML contains attachments line!")
+        else:
+            logger.warning(f"❌ HTML does NOT contain attachments line! attachments_html was: {attachments_html}")
+        
         return html
     
     else:
