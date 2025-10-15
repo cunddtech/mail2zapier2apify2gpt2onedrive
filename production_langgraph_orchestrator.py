@@ -707,6 +707,7 @@ class CommunicationState(TypedDict):
     from_contact: str
     content: str
     timestamp: str
+    additional_data: Optional[Dict[str, Any]]  # Email attachments, call metadata, etc.
     
     # Processing Results
     contact_match: Optional[Dict[str, Any]]
@@ -1655,7 +1656,8 @@ Antworten Sie mit den erforderlichen Kontakt-Details oder markieren Sie als "Pri
             crm_updates=[],
             processing_complete=False,
             response_sent=False,
-            errors=[]
+            errors=[],
+            additional_data=additional_data or {}
         )
         
         try:
