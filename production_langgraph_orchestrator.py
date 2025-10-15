@@ -163,12 +163,15 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
         logger.info(f"🔍 DEBUG generate_notification_html: attachments_count={attachments_count}, attachment_results={len(attachment_results)}")
         
         if attachments_count > 0:
-            # Build detailed attachment list
+            # Build detailed attachment list with OCR results
             attachment_details = []
             for result in attachment_results:
                 name = result.get("filename", "Unbekannt")
                 size = result.get("size", 0)
                 doc_type = result.get("document_type", "unbekannt")
+                ocr_route = result.get("ocr_route", "none")
+                ocr_text = result.get("ocr_text", "")
+                structured_data = result.get("structured_data", {})
                 
                 # Format size
                 if size > 1024 * 1024:
@@ -178,15 +181,34 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
                 else:
                     size_str = f"{size} B"
                 
-                attachment_details.append(f"📄 {name} ({size_str}, {doc_type})")
+                # Build detail line
+                detail_line = f"📄 <strong>{name}</strong> ({size_str})"
+                detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🏷️ Typ: {doc_type}"
+                detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🔍 Verarbeitung: {ocr_route}"
+                
+                # Add OCR preview if available
+                if ocr_text and ocr_text != f"[OCR Placeholder for {name} - Type: {doc_type}]":
+                    preview = ocr_text[:150] + "..." if len(ocr_text) > 150 else ocr_text
+                    detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;📝 Inhalt: {preview}"
+                
+                # Add key structured data if available
+                if structured_data:
+                    if structured_data.get("invoice_number"):
+                        detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🔢 Rechnungs-Nr: {structured_data['invoice_number']}"
+                    if structured_data.get("total_amount"):
+                        detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;💰 Betrag: {structured_data['total_amount']}"
+                    if structured_data.get("vendor_name"):
+                        detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🏢 Lieferant: {structured_data['vendor_name']}"
+                
+                attachment_details.append(detail_line)
             
             if attachment_details:
-                details_html = "<br>".join(attachment_details)
-                attachments_html = f'<p><strong>📎 Anhänge ({attachments_count}):</strong><br>{details_html}</p>'
+                details_html = "<br><br>".join(attachment_details)
+                attachments_html = f'<p><strong>📎 Anhänge ({attachments_count}):</strong><br><br>{details_html}</p>'
             else:
                 attachments_html = f'<p><strong>📎 Anhänge:</strong> {attachments_count} Datei(en)</p>'
             
-            logger.info(f"✅ Generated attachments_html with details: {len(attachment_results)} files")
+            logger.info(f"✅ Generated attachments_html with OCR details: {len(attachment_results)} files")
         else:
             attachments_html = ''
             logger.info(f"⚠️ No attachments, attachments_html is empty")
@@ -508,6 +530,7 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
             # Attachments Info
             "attachments_count": processing_result.get("attachments_count", 0),
             "has_attachments": processing_result.get("has_attachments", False),
+            "attachment_results": processing_result.get("attachment_results", []),
             
             # Potential Matches (if any)
             "potential_matches": potential_matches,
