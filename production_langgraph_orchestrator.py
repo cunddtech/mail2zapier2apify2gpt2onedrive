@@ -1651,7 +1651,10 @@ Antworten Sie mit den erforderlichen Kontakt-Details oder markieren Sie als "Pri
                 "ai_analysis": final_state.get("ai_analysis"),
                 "tasks_generated": final_state.get("tasks_generated", []),
                 "processing_complete": final_state.get("processing_complete", False),
-                "errors": final_state.get("errors", [])
+                "errors": final_state.get("errors", []),
+                # Attachment info from additional_data
+                "attachments_count": additional_data.get("attachments_count", 0),
+                "has_attachments": additional_data.get("has_attachments", False)
             }
             
             # 🎯 SEND FINAL ZAPIER NOTIFICATION
