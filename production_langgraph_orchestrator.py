@@ -185,8 +185,8 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <style>
-    body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #2C3E50; background: linear-gradient(135deg, #E8F5F7 0%, #FFF4E6 100%); }}
-    .container {{ max-width: 650px; margin: 20px auto; padding: 0; background: white; border-radius: 15px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); overflow: hidden; }}
+    body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #2C3E50; background: #FFFFFF; margin: 0; padding: 0; }}
+    .container {{ max-width: 650px; margin: 0 auto; padding: 0; background: white; border-radius: 15px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); overflow: hidden; }}
     .header {{ background: linear-gradient(135deg, #4ECDC4 0%, #44A08D 100%); color: white; padding: 30px; text-align: center; }}
     .header h2 {{ margin: 0; font-size: 24px; text-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
     .content {{ background: #FFFFFF; padding: 30px; }}
@@ -295,8 +295,8 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <style>
-    body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #2C3E50; background: linear-gradient(135deg, #E8F5F7 0%, #FFF4E6 100%); }}
-    .container {{ max-width: 650px; margin: 20px auto; padding: 0; background: white; border-radius: 15px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); overflow: hidden; }}
+    body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #2C3E50; background: #FFFFFF; margin: 0; padding: 0; }}
+    .container {{ max-width: 650px; margin: 0 auto; padding: 0; background: white; border-radius: 15px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); overflow: hidden; }}
     .header {{ background: linear-gradient(135deg, #55EFC4 0%, #00B894 100%); color: white; padding: 30px; text-align: center; }}
     .header h2 {{ margin: 0; font-size: 24px; text-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
     .content {{ background: #FFFFFF; padding: 30px; }}
@@ -885,7 +885,14 @@ class ProductionAIOrchestrator:
         logger.info(f"🤖 AI analyzing {state['message_type']} from {state['from_contact']}")
         
         try:
-            # AI Analysis Prompt (Fixed JSON escaping)
+            # Get additional context
+            additional_data = state.get("additional_data", {})
+            email_direction = additional_data.get("email_direction", "incoming")
+            subject = additional_data.get("subject", "")
+            attachments = additional_data.get("attachments", [])
+            attachment_names = [att.get("name", "") for att in attachments] if attachments else []
+            
+            # AI Analysis Prompt with Document Type Classification
             analysis_prompt = ChatPromptTemplate.from_messages([
                 ("system", """Du bist ein AI Communication Analyst für ein deutsches Unternehmen.
                 
@@ -895,11 +902,13 @@ Analysiere die eingehende Kommunikation und erstelle eine JSON-Antwort mit:
     "intent": "support|sales|information|complaint|follow_up",
     "urgency": "low|medium|high|urgent", 
     "sentiment": "positive|neutral|negative",
+    "document_type": "invoice|offer|order_confirmation|delivery_note|general",
+    "has_pricing": true,
     "key_topics": ["thema1", "thema2"],
     "suggested_tasks": [
         {{
             "title": "Aufgaben-Titel",
-            "type": "follow_up|quote|support|meeting",
+            "type": "follow_up|quote|support|meeting|payment|delivery",
             "priority": "low|medium|high|urgent",
             "due_hours": 24
         }}
@@ -908,11 +917,21 @@ Analysiere die eingehende Kommunikation und erstelle eine JSON-Antwort mit:
     "summary": "Kurze deutsche Zusammenfassung"
 }}
 
+**DOKUMENTTYP-KLASSIFIKATION:**
+- "invoice": Rechnung, Zahlungsaufforderung, RE:, Invoice (mit/ohne Anhang)
+- "offer": Angebot, Quote, Preisanfrage, Richtpreis (mit/ohne Anhang)
+- "order_confirmation": Auftragsbestätigung, AB:, Order Confirmation
+- "delivery_note": Aufmaß, Lieferschein, Delivery Note, Measurement
+- "general": Allgemeine Anfrage, Info-Request, Support
+
 Antworte nur mit dem JSON, keine zusätzlichen Texte."""),
                 ("user", f"""Kommunikation analysieren:
                 
 Art: {state['message_type']}
+Richtung: {email_direction}
 Von: {state['from_contact']}
+Betreff: {subject}
+Anhänge: {len(attachment_names)} ({', '.join(attachment_names[:3])})
 Inhalt: {state['content'][:1000]}
 Zeit: {state['timestamp']}
 
@@ -1725,20 +1744,29 @@ async def root():
         "status": "✅ AI Communication Orchestrator ONLINE",
         "system": "LangGraph + FastAPI Production",
         "endpoints": [
-            "/webhook/ai-email",
+            "/webhook/ai-email (deprecated - use /incoming or /outgoing)",
+            "/webhook/ai-email/incoming",
+            "/webhook/ai-email/outgoing",
             "/webhook/ai-call",
             "/webhook/frontdesk",
             "/webhook/feedback",
             "/webhook/ai-whatsapp"
         ],
-        "version": "1.2.0",
+        "version": "1.3.0",
+        "features": [
+            "Email Direction Detection (incoming/outgoing)",
+            "Document Type Classification (invoice/offer/order/delivery/general)",
+            "Intelligent Attachment Processing",
+            "Type-specific OCR Routes"
+        ],
         "timestamp": now_berlin().isoformat()
     }
 
 @app.post("/webhook/ai-email")
-async def process_email(request: Request):
+@app.post("/webhook/ai-email/incoming")
+async def process_email_incoming(request: Request):
     """
-    📧 EMAIL PROCESSING WITH MICROSOFT GRAPH API
+    📧 INCOMING EMAIL PROCESSING WITH MICROSOFT GRAPH API
     
     Zapier sends minimal metadata → Railway loads full email via Graph API
     
@@ -1753,6 +1781,7 @@ async def process_email(request: Request):
     
     try:
         data = await request.json()
+        data["email_direction"] = "incoming"  # Mark as incoming
         message_id = data.get("message_id") or data.get("id")
         user_email = data.get("user_email") or data.get("mailbox") or data.get("recipient")
         
@@ -1766,7 +1795,8 @@ async def process_email(request: Request):
             status_code=200,
             content={
                 "status": "accepted",
-                "message_id": message_id
+                "message_id": message_id,
+                "direction": "incoming"
             }
         )
         
@@ -1776,6 +1806,185 @@ async def process_email(request: Request):
             status_code=200,
             content={"status": "error", "error": str(e)}
         )
+
+@app.post("/webhook/ai-email/outgoing")
+async def process_email_outgoing(request: Request):
+    """
+    📤 OUTGOING EMAIL PROCESSING WITH MICROSOFT GRAPH API
+    
+    Zapier sends minimal metadata → Railway loads full email via Graph API
+    
+    Expected payload from Zapier:
+    {
+        "message_id": "AAMkAGE1...",  # Graph API Message ID
+        "user_email": "mj@cdtechnologies.de",  # Mailbox to query
+        "to": "recipient@example.com",  # Optional metadata
+        "subject": "..."  # Optional metadata
+    }
+    """
+    
+    try:
+        data = await request.json()
+        data["email_direction"] = "outgoing"  # Mark as outgoing
+        message_id = data.get("message_id") or data.get("id")
+        user_email = data.get("user_email") or data.get("mailbox") or data.get("sender")
+        
+        # ⚡ IMMEDIATE RESPONSE - No logging before response!
+        # Fire-and-forget background task
+        import asyncio
+        asyncio.create_task(process_email_background(data, message_id, user_email))
+        
+        # Return immediately (< 1 second)
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "accepted",
+                "message_id": message_id,
+                "direction": "outgoing"
+            }
+        )
+        
+    except Exception as e:
+        # Even errors return fast
+        return JSONResponse(
+            status_code=200,
+            content={"status": "error", "error": str(e)}
+        )
+
+async def process_attachments_intelligent(
+    attachments: List[Dict],
+    message_id: str,
+    user_email: str,
+    access_token: str,
+    subject: str
+) -> List[Dict]:
+    """
+    📎 INTELLIGENT ATTACHMENT PROCESSING
+    
+    1. Classify document type from subject + filename
+    2. Download attachment bytes from Graph API
+    3. Choose OCR route based on type:
+       - invoice → PDF.co Invoice Parser
+       - delivery_note/aufmaß → PDF.co Handwriting OCR
+       - offer/order → PDF.co Standard OCR
+    4. Extract text and structured data
+    5. Return results for GPT analysis
+    """
+    results = []
+    
+    try:
+        import httpx
+        import base64
+        
+        # Classify expected document type from subject
+        subject_lower = subject.lower()
+        expected_type = "general"
+        
+        if any(word in subject_lower for word in ["rechnung", "invoice", "re:"]):
+            expected_type = "invoice"
+        elif any(word in subject_lower for word in ["angebot", "offer", "quote"]):
+            expected_type = "offer"
+        elif any(word in subject_lower for word in ["auftragsbestätigung", "ab:", "order"]):
+            expected_type = "order_confirmation"
+        elif any(word in subject_lower for word in ["aufmaß", "lieferschein", "delivery"]):
+            expected_type = "delivery_note"
+        
+        logger.info(f"📊 Expected document type from subject: {expected_type}")
+        
+        for attachment in attachments:
+            try:
+                att_id = attachment.get("id")
+                att_name = attachment.get("name", "unknown")
+                att_type = attachment.get("contentType", "")
+                att_size = attachment.get("size", 0)
+                
+                logger.info(f"📎 Processing: {att_name} ({att_type}, {att_size} bytes)")
+                
+                # Only process PDFs and images
+                if att_type not in ["application/pdf", "image/jpeg", "image/png", "image/jpg"]:
+                    logger.warning(f"⚠️ Skipping unsupported type: {att_type}")
+                    continue
+                
+                # Download attachment bytes via Graph API
+                download_url = f"https://graph.microsoft.com/v1.0/users/{user_email}/messages/{message_id}/attachments/{att_id}/$value"
+                
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.get(
+                        download_url,
+                        headers={"Authorization": f"Bearer {access_token}"}
+                    )
+                    
+                    if response.status_code == 200:
+                        file_bytes = response.content
+                        logger.info(f"✅ Downloaded {len(file_bytes)} bytes for {att_name}")
+                        
+                        # Choose OCR route based on type
+                        ocr_result = await process_attachment_ocr(
+                            file_bytes=file_bytes,
+                            filename=att_name,
+                            content_type=att_type,
+                            document_type=expected_type
+                        )
+                        
+                        results.append({
+                            "filename": att_name,
+                            "type": att_type,
+                            "size": att_size,
+                            "document_type": expected_type,
+                            "ocr_text": ocr_result.get("text", ""),
+                            "structured_data": ocr_result.get("structured", {}),
+                            "ocr_route": ocr_result.get("route", "none")
+                        })
+                        
+                    else:
+                        logger.error(f"❌ Failed to download {att_name}: {response.status_code}")
+                        
+            except Exception as att_error:
+                logger.error(f"❌ Error processing attachment {att_name}: {att_error}")
+                
+    except Exception as e:
+        logger.error(f"❌ Attachment processing error: {e}")
+    
+    return results
+
+
+async def process_attachment_ocr(
+    file_bytes: bytes,
+    filename: str,
+    content_type: str,
+    document_type: str
+) -> Dict:
+    """
+    🤖 OCR PROCESSING WITH TYPE-SPECIFIC ROUTES
+    
+    Routes:
+    - invoice → PDF.co Invoice Parser (structured extraction)
+    - delivery_note → PDF.co Handwriting OCR
+    - offer/order/general → PDF.co Standard OCR
+    """
+    result = {"text": "", "structured": {}, "route": "none"}
+    
+    try:
+        # For now, return placeholder (will integrate PDF.co in next step)
+        logger.info(f"🔍 OCR Route: {document_type} for {filename}")
+        
+        # TODO: Implement PDF.co calls
+        # if document_type == "invoice":
+        #     result = await pdfco_invoice_parser(file_bytes)
+        # elif document_type == "delivery_note":
+        #     result = await pdfco_handwriting_ocr(file_bytes)
+        # else:
+        #     result = await pdfco_standard_ocr(file_bytes)
+        
+        result["route"] = f"{document_type}_ocr"
+        result["text"] = f"[OCR Placeholder for {filename} - Type: {document_type}]"
+        
+    except Exception as e:
+        logger.error(f"❌ OCR error for {filename}: {e}")
+        result["error"] = str(e)
+    
+    return result
+
 
 async def process_email_background(data: dict, message_id: str, user_email: str):
     """Background task to process email without blocking Zapier webhook"""
@@ -1814,6 +2023,19 @@ async def process_email_background(data: dict, message_id: str, user_email: str)
             
             logger.info(f"✅ Email loaded: From={from_address}, Subject={subject}, Attachments={len(attachments)}")
             
+            # 📎 PROCESS ATTACHMENTS (if any)
+            attachment_results = []
+            if len(attachments) > 0:
+                logger.info(f"📎 Processing {len(attachments)} attachment(s)...")
+                attachment_results = await process_attachments_intelligent(
+                    attachments=attachments,
+                    message_id=message_id,
+                    user_email=user_email,
+                    access_token=access_token,
+                    subject=subject
+                )
+                logger.info(f"✅ Attachments processed: {len(attachment_results)} results")
+            
             # Process with full email data
             result = await orchestrator.process_communication(
                 message_type="email",
@@ -1826,7 +2048,8 @@ async def process_email_background(data: dict, message_id: str, user_email: str)
                     "body_type": body_type,
                     "attachments": attachments,
                     "has_attachments": len(attachments) > 0,
-                    "attachments_count": len(attachments)
+                    "attachments_count": len(attachments),
+                    "attachment_results": attachment_results  # OCR results
                 }
             )
             logger.info(f"✅ Email processing complete: {result.get('workflow_path', 'unknown')}")
