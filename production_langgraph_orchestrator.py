@@ -472,6 +472,9 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
         # 🎨 Generate complete HTML for email
         notification_data["html_body"] = generate_notification_html(notification_data)
         
+        # 🔍 DEBUG: Log attachment info before sending
+        logger.info(f"📎 DEBUG notification_data: attachments_count={notification_data.get('attachments_count')}, has_attachments={notification_data.get('has_attachments')}")
+        
         logger.info(f"⚠️ Sending UNKNOWN CONTACT notification for {from_contact}")
     
     else:
@@ -1665,6 +1668,9 @@ Antworten Sie mit den erforderlichen Kontakt-Details oder markieren Sie als "Pri
             final_state = await self.workflow.ainvoke(initial_state)
             
             # Build processing result
+            # Get additional_data from final_state (it flows through the workflow)
+            state_additional_data = final_state.get("additional_data", {})
+            
             processing_result = {
                 "success": True,
                 "workflow_path": final_state.get("workflow_path"),
@@ -1673,9 +1679,10 @@ Antworten Sie mit den erforderlichen Kontakt-Details oder markieren Sie als "Pri
                 "tasks_generated": final_state.get("tasks_generated", []),
                 "processing_complete": final_state.get("processing_complete", False),
                 "errors": final_state.get("errors", []),
-                # Attachment info from additional_data
-                "attachments_count": additional_data.get("attachments_count", 0),
-                "has_attachments": additional_data.get("has_attachments", False)
+                # Attachment info from state's additional_data
+                "attachments_count": state_additional_data.get("attachments_count", 0),
+                "has_attachments": state_additional_data.get("has_attachments", False),
+                "attachment_results": state_additional_data.get("attachment_results", [])
             }
             
             # 🎯 SEND FINAL ZAPIER NOTIFICATION
