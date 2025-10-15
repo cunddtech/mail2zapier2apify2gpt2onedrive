@@ -159,10 +159,13 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
         
         # Build attachments HTML if present
         attachments_count = notification_data.get("attachments_count", 0)
+        logger.info(f"🔍 DEBUG generate_notification_html: attachments_count={attachments_count}, notification_data keys={list(notification_data.keys())}")
         if attachments_count > 0:
             attachments_html = f'<p><strong>📎 Anhänge:</strong> {attachments_count} Datei(en)</p>'
+            logger.info(f"✅ Generated attachments_html: {attachments_html}")
         else:
             attachments_html = ''
+            logger.info(f"⚠️ No attachments, attachments_html is empty")
         
         # Build action buttons HTML
         buttons_html = ""
