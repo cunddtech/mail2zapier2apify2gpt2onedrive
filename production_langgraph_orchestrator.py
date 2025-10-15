@@ -159,10 +159,34 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
         
         # Build attachments HTML if present
         attachments_count = notification_data.get("attachments_count", 0)
-        logger.info(f"🔍 DEBUG generate_notification_html: attachments_count={attachments_count}, notification_data keys={list(notification_data.keys())}")
+        attachment_results = notification_data.get("attachment_results", [])
+        logger.info(f"🔍 DEBUG generate_notification_html: attachments_count={attachments_count}, attachment_results={len(attachment_results)}")
+        
         if attachments_count > 0:
-            attachments_html = f'<p><strong>📎 Anhänge:</strong> {attachments_count} Datei(en)</p>'
-            logger.info(f"✅ Generated attachments_html: {attachments_html}")
+            # Build detailed attachment list
+            attachment_details = []
+            for result in attachment_results:
+                name = result.get("filename", "Unbekannt")
+                size = result.get("size", 0)
+                doc_type = result.get("document_type", "unbekannt")
+                
+                # Format size
+                if size > 1024 * 1024:
+                    size_str = f"{size / (1024 * 1024):.1f} MB"
+                elif size > 1024:
+                    size_str = f"{size / 1024:.1f} KB"
+                else:
+                    size_str = f"{size} B"
+                
+                attachment_details.append(f"📄 {name} ({size_str}, {doc_type})")
+            
+            if attachment_details:
+                details_html = "<br>".join(attachment_details)
+                attachments_html = f'<p><strong>📎 Anhänge ({attachments_count}):</strong><br>{details_html}</p>'
+            else:
+                attachments_html = f'<p><strong>📎 Anhänge:</strong> {attachments_count} Datei(en)</p>'
+            
+            logger.info(f"✅ Generated attachments_html with details: {len(attachment_results)} files")
         else:
             attachments_html = ''
             logger.info(f"⚠️ No attachments, attachments_html is empty")
