@@ -693,21 +693,50 @@ def initialize_contact_cache():
 
 async def lookup_contact_in_cache(email: str) -> Optional[Dict[str, Any]]:
     """
-    🔍 STEP 1: Cache Lookup (Sub-Second Performance)
+    🔍 STEP 1: Multi-Source Contact Lookup (Cache → WEClapp Sync DB → WeClapp API)
     
-    Sucht Kontakt zuerst im lokalen SQLite Cache.
-    Nur bei Cache Miss wird WeClapp API aufgerufen.
+    Sucht Kontakt in mehreren Quellen:
+    1. Lokaler email_data.db Cache (schnellster)
+    2. WEClapp Sync Database (von Apify Actor)
+    3. WeClapp API (langsamster, nur als Fallback)
     """
     try:
+        # STEP 1a: Check local email_data cache first
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(None, _sync_lookup_contact, email)
         
         if result:
-            logger.info(f"✅ CACHE HIT for {email} - Contact ID: {result['weclapp_contact_id']}")
+            logger.info(f"✅ CACHE HIT (email_data) for {email} - Contact ID: {result['weclapp_contact_id']}")
             return result
-        else:
-            logger.info(f"⚠️ CACHE MISS for {email} - Will query WeClapp")
-            return None
+        
+        # STEP 1b: Check WEClapp Sync DB (from Apify actor)
+        logger.info(f"🔍 Checking WEClapp Sync DB for {email}...")
+        
+        # Ensure WEClapp DB is available
+        await ensure_weclapp_db_available()
+        
+        weclapp_contact = await query_weclapp_contact(email)
+        
+        if weclapp_contact:
+            logger.info(f"✅ WECLAPP SYNC DB HIT for {email} - {weclapp_contact.get('name', 'Unknown')}")
+            
+            # Convert to expected format
+            result = {
+                "found": True,
+                "source": "weclapp_sync_db",
+                "weclapp_contact_id": weclapp_contact.get("party_id") or weclapp_contact.get("lead_id"),
+                "weclapp_customer_id": weclapp_contact.get("customer_number"),
+                "sender": email,
+                "name": weclapp_contact.get("name"),
+                "phone": weclapp_contact.get("phone"),
+                "company": weclapp_contact.get("company"),
+                "party_type": weclapp_contact.get("party_type") or "LEAD"
+            }
+            
+            return result
+        
+        logger.info(f"⚠️ CACHE MISS (all sources) for {email} - Will query WeClapp API")
+        return None
             
     except Exception as e:
         logger.error(f"❌ Cache lookup error: {e}")
@@ -826,6 +855,232 @@ class AITask:
     due_date: str
     task_type: str  # "follow_up", "quote", "support", "meeting"
     contact_id: Optional[str] = None
+
+# ==================== WECLAPP SYNC DATABASE INTEGRATION ====================
+
+async def download_weclapp_db_from_onedrive(access_token_onedrive: str) -> Optional[str]:
+    """
+    Downloads WEClapp sync database from OneDrive
+    Tries multiple possible locations automatically
+    
+    Returns: Local path to DB file or None if failed
+    """
+    logger.info("📥 Downloading WEClapp Sync DB from OneDrive...")
+    
+    user_email = "mj@cdtechnologies.de"
+    local_path = "/tmp/weclapp_sync.db"
+    
+    # Try multiple possible OneDrive locations
+    possible_paths = [
+        "/Temp/weclapp_sync.db",
+        "/Temp/weclapp_data.db",
+        "/scan/weclapp_sync.db",
+        "/scan/weclapp_data.db",
+        "/Email/weclapp_sync.db",
+        "/Database/weclapp_sync.db",
+        "/weclapp_sync.db",
+        "/weclapp_data.db"
+    ]
+    
+    for try_path in possible_paths:
+        logger.info(f"🔍 Trying OneDrive path: {try_path}")
+        
+        download_url = f"https://graph.microsoft.com/v1.0/users/{user_email}/drive/root:{try_path}:/content"
+        
+        headers = {"Authorization": f"Bearer {access_token_onedrive}"}
+        
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.get(download_url, headers=headers)
+                
+                if response.status_code == 200:
+                    file_bytes = response.content
+                    file_size_kb = len(file_bytes) / 1024
+                    
+                    logger.info(f"✅ Found WEClapp DB at {try_path} ({file_size_kb:.1f} KB)")
+                    
+                    # Save locally
+                    with open(local_path, 'wb') as f:
+                        f.write(file_bytes)
+                    
+                    logger.info(f"💾 Saved WEClapp DB to {local_path}")
+                    return local_path
+                
+                elif response.status_code == 404:
+                    logger.debug(f"⚠️ Not found at {try_path}")
+                    continue
+                else:
+                    logger.warning(f"⚠️ Error {response.status_code} at {try_path}")
+                    continue
+                    
+        except Exception as e:
+            logger.warning(f"⚠️ Download error for {try_path}: {str(e)}")
+            continue
+    
+    logger.warning("❌ Could not find WEClapp DB at any expected OneDrive location")
+    return None
+
+
+async def query_weclapp_contact(sender_email: str) -> Optional[Dict]:
+    """
+    Query WEClapp sync database for contact information
+    
+    Returns: Contact info dict or None if not found
+    """
+    db_path = "/tmp/weclapp_sync.db"
+    
+    if not os.path.exists(db_path):
+        logger.debug(f"⚠️ WEClapp DB not found at {db_path} - download needed")
+        return None
+    
+    try:
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Try parties table first (customers/suppliers)
+        cursor.execute("""
+            SELECT id, name, email, phone, customerNumber, partyType
+            FROM parties 
+            WHERE email = ? COLLATE NOCASE
+            LIMIT 1
+        """, (sender_email,))
+        
+        row = cursor.fetchone()
+        
+        if row:
+            conn.close()
+            logger.info(f"✅ Found contact in WEClapp Sync DB: {row[1]} (Party ID: {row[0]})")
+            
+            return {
+                "party_id": row[0],
+                "name": row[1],
+                "email": row[2],
+                "phone": row[3],
+                "customer_number": row[4],
+                "party_type": row[5],
+                "source": "weclapp_sync_db"
+            }
+        
+        # Try leads table
+        cursor.execute("""
+            SELECT id, firstName, lastName, email, phone, company, leadStatus
+            FROM leads
+            WHERE email = ? COLLATE NOCASE
+            LIMIT 1
+        """, (sender_email,))
+        
+        row = cursor.fetchone()
+        
+        if row:
+            conn.close()
+            name = f"{row[1]} {row[2]}".strip()
+            logger.info(f"✅ Found lead in WEClapp Sync DB: {name} (Lead ID: {row[0]})")
+            
+            return {
+                "lead_id": row[0],
+                "name": name,
+                "email": row[3],
+                "phone": row[4],
+                "company": row[5],
+                "lead_status": row[6],
+                "source": "weclapp_sync_db"
+            }
+        
+        conn.close()
+        logger.debug(f"⚠️ No contact found for {sender_email} in WEClapp Sync DB")
+        return None
+        
+    except Exception as e:
+        logger.error(f"❌ WEClapp DB query error: {str(e)}")
+        return None
+
+
+# Global flag to track if WEClapp DB was downloaded this session
+WECLAPP_DB_DOWNLOADED = False
+
+async def ensure_weclapp_db_available() -> bool:
+    """
+    Ensures WEClapp sync database is available locally
+    Downloads from OneDrive if needed (once per session)
+    
+    Returns: True if DB is available, False otherwise
+    """
+    global WECLAPP_DB_DOWNLOADED
+    
+    db_path = "/tmp/weclapp_sync.db"
+    
+    # Check if already downloaded this session
+    if WECLAPP_DB_DOWNLOADED and os.path.exists(db_path):
+        logger.debug("✅ WEClapp DB already available (cached)")
+        return True
+    
+    # Check if file exists from previous session
+    if os.path.exists(db_path):
+        # Check age - if older than 1 hour, re-download
+        file_age_seconds = datetime.now().timestamp() - os.path.getmtime(db_path)
+        if file_age_seconds < 3600:  # 1 hour
+            logger.info(f"✅ WEClapp DB available (age: {file_age_seconds/60:.1f} min)")
+            WECLAPP_DB_DOWNLOADED = True
+            return True
+        else:
+            logger.info(f"🔄 WEClapp DB outdated (age: {file_age_seconds/3600:.1f} hours), re-downloading...")
+    
+    # Need to download
+    try:
+        access_token = await get_graph_token_onedrive()
+        if not access_token:
+            logger.warning("⚠️ Could not get OneDrive token for WEClapp DB download")
+            return False
+        
+        downloaded_path = await download_weclapp_db_from_onedrive(access_token)
+        
+        if downloaded_path:
+            WECLAPP_DB_DOWNLOADED = True
+            logger.info("✅ WEClapp Sync DB successfully downloaded and ready")
+            return True
+        else:
+            logger.warning("⚠️ WEClapp Sync DB download failed")
+            return False
+            
+    except Exception as e:
+        logger.error(f"❌ WEClapp DB download error: {str(e)}")
+        return False
+
+
+async def get_graph_token_onedrive():
+    """Holt das Zugriffstoken von Microsoft Graph für OneDrive."""
+    tenant_id = os.getenv("GRAPH_TENANT_ID")
+    client_id = os.getenv("GRAPH_CLIENT_ID")
+    client_secret = os.getenv("GRAPH_CLIENT_SECRET")
+    
+    if not tenant_id or not client_id or not client_secret:
+        logger.error("❌ Fehlende OneDrive-Graph API Zugangsdaten")
+        return None
+    
+    url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    data = {
+        "grant_type": "client_credentials",
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "scope": "https://graph.microsoft.com/.default"
+    }
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, headers=headers, data=data)
+            if response.status_code == 200:
+                return response.json().get("access_token")
+            else:
+                logger.error(f"❌ OneDrive token error {response.status_code}: {response.text}")
+                return None
+    except Exception as e:
+        logger.error(f"❌ OneDrive token exception: {e}")
+        return None
+
+
+# ==================== END WECLAPP SYNC INTEGRATION ====================
 
 async def save_to_database(
     processing_result: Dict,
@@ -1901,11 +2156,36 @@ initialize_contact_cache()
 # Initialize Orchestrator
 orchestrator = ProductionAIOrchestrator()
 
-# FastAPI App
+# FastAPI App with startup/shutdown events
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifecycle manager for FastAPI application"""
+    # STARTUP
+    logger.info("🚀 Starting AI Communication Orchestrator...")
+    logger.info("📥 Downloading WEClapp Sync Database from OneDrive...")
+    
+    try:
+        # Pre-download WEClapp DB at startup
+        db_available = await ensure_weclapp_db_available()
+        if db_available:
+            logger.info("✅ WEClapp Sync DB ready at startup")
+        else:
+            logger.warning("⚠️ WEClapp Sync DB not available - will retry on first request")
+    except Exception as e:
+        logger.error(f"❌ Startup WEClapp DB download error: {e}")
+    
+    logger.info("✅ AI Communication Orchestrator ready!")
+    
+    yield  # Server is running
+    
+    # SHUTDOWN
+    logger.info("👋 Shutting down AI Communication Orchestrator...")
+
 app = FastAPI(
     title="AI Communication Orchestrator",
     description="Production-ready LangGraph AI Communication Processing System",
-    version="1.0.0"
+    version="1.3.0-weclapp-sync",
+    lifespan=lifespan
 )
 
 # CORS Middleware
@@ -1920,9 +2200,13 @@ app.add_middleware(
 @app.get("/")
 async def root():
     """Health check endpoint"""
+    weclapp_db_status = "✅ Available" if os.path.exists("/tmp/weclapp_sync.db") else "⚠️ Not Downloaded"
+    
     return {
         "status": "✅ AI Communication Orchestrator ONLINE",
         "system": "LangGraph + FastAPI Production",
+        "version": "1.3.0-weclapp-sync",
+        "weclapp_sync_db": weclapp_db_status,
         "endpoints": [
             "/webhook/ai-email (deprecated - use /incoming or /outgoing)",
             "/webhook/ai-email/incoming",
