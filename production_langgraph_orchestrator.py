@@ -248,6 +248,7 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
 <p><strong>Absicht:</strong> {ai_analysis.get('intent', 'unbekannt')}</p>
 <p><strong>Dringlichkeit:</strong> {ai_analysis.get('urgency', 'unbekannt')}</p>
 <p><strong>Stimmung:</strong> {ai_analysis.get('sentiment', 'unbekannt')}</p>
+{attachments_html}
 </div>
 <div class="action-buttons">
 <h3>👆 Wähle eine Aktion:</h3>
@@ -354,6 +355,7 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
 <p>{summary}</p>
 <p><strong>Absicht:</strong> {ai_analysis.get('intent', 'unbekannt')}</p>
 <p><strong>Dringlichkeit:</strong> {ai_analysis.get('urgency', 'unbekannt')}</p>
+{attachments_html}
 </div>
 <div class="action-buttons">
 <h3>🔗 Aktionen:</h3>
