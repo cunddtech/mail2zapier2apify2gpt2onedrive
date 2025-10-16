@@ -1464,6 +1464,52 @@ Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
         logger.info("🆕 Executing WEG A: Unknown Contact Workflow")
         
         try:
+            # 💰 NEUE FEATURE: Richtpreis-Berechnung auch für WEG A (unbekannte Kontakte)
+            if state.get("message_type") == "call" and state.get('content'):
+                try:
+                    logger.info(f"💰 Calculating price estimate from call transcript (WEG A)...")
+                    
+                    # Run estimate calculation
+                    estimate = calculate_estimate_from_transcript(
+                        transcript=state.get('content', ''),
+                        caller_info={
+                            "name": None,  # Unknown contact
+                            "company": None
+                        }
+                    )
+                    
+                    if estimate.found:
+                        logger.info(f"✅ Price Estimate (WEG A): {estimate.total_cost:.2f} EUR (confidence: {estimate.confidence:.0%})")
+                        
+                        # Store estimate in state
+                        state["price_estimate"] = {
+                            "found": True,
+                            "project_type": estimate.project_type,
+                            "area_sqm": estimate.area_sqm,
+                            "material": estimate.material,
+                            "work_type": estimate.work_type,
+                            "material_cost": estimate.material_cost,
+                            "labor_cost": estimate.labor_cost,
+                            "additional_cost": estimate.additional_cost,
+                            "total_cost": estimate.total_cost,
+                            "confidence": estimate.confidence,
+                            "calculation_basis": estimate.calculation_basis,
+                            "additional_services": estimate.additional_services,
+                            "notes": estimate.notes
+                        }
+                        
+                        logger.info(f"✅ Price estimate stored in state for notification")
+                    else:
+                        logger.info(f"⚠️ No price estimate possible (WEG A): {estimate.notes}")
+                        state["price_estimate"] = {
+                            "found": False,
+                            "notes": estimate.notes
+                        }
+                
+                except Exception as e:
+                    logger.error(f"❌ Price estimate error (WEG A): {e}")
+                    # Continue without estimate - not critical
+            
             # Generate employee notification
             notification = await self._generate_employee_notification(state)
             
