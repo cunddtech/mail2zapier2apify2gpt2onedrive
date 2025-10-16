@@ -722,6 +722,29 @@ def initialize_contact_cache():
     )
     """)
     
+    # 🔧 MIGRATION: Add new columns if they don't exist (for old databases)
+    try:
+        # Check if message_type column exists
+        cursor.execute("PRAGMA table_info(email_data)")
+        columns = [col[1] for col in cursor.fetchall()]
+        
+        if "message_type" not in columns:
+            logger.info("🔧 MIGRATION: Adding new columns to email_data table...")
+            cursor.execute("ALTER TABLE email_data ADD COLUMN message_type TEXT")
+            cursor.execute("ALTER TABLE email_data ADD COLUMN direction TEXT")
+            cursor.execute("ALTER TABLE email_data ADD COLUMN workflow_path TEXT")
+            cursor.execute("ALTER TABLE email_data ADD COLUMN ai_intent TEXT")
+            cursor.execute("ALTER TABLE email_data ADD COLUMN ai_urgency TEXT")
+            cursor.execute("ALTER TABLE email_data ADD COLUMN ai_sentiment TEXT")
+            cursor.execute("ALTER TABLE email_data ADD COLUMN attachments_count INTEGER DEFAULT 0")
+            cursor.execute("ALTER TABLE email_data ADD COLUMN processing_timestamp TEXT")
+            cursor.execute("ALTER TABLE email_data ADD COLUMN processing_duration_ms INTEGER")
+            cursor.execute("ALTER TABLE email_data ADD COLUMN price_estimate_json TEXT")
+            conn.commit()
+            logger.info("✅ MIGRATION: New columns added successfully")
+    except Exception as e:
+        logger.warning(f"⚠️ Migration warning (likely already applied): {e}")
+    
     # Index für schnelle Email-Lookups
     cursor.execute("""
     CREATE INDEX IF NOT EXISTS idx_sender ON email_data(sender)
@@ -2316,7 +2339,7 @@ async def root():
     return {
         "status": "✅ AI Communication Orchestrator ONLINE",
         "system": "LangGraph + FastAPI Production",
-        "version": "1.3.0-weclapp-sync",
+        "version": "1.4.0-sipgate-pricing",
         "weclapp_sync_db": weclapp_db_status,
         "endpoints": [
             "/webhook/ai-email (deprecated - use /incoming or /outgoing)",
@@ -2327,12 +2350,13 @@ async def root():
             "/webhook/feedback",
             "/webhook/ai-whatsapp"
         ],
-        "version": "1.3.0",
         "features": [
             "Email Direction Detection (incoming/outgoing)",
             "Document Type Classification (invoice/offer/order/delivery/general)",
             "Intelligent Attachment Processing",
-            "Type-specific OCR Routes"
+            "Type-specific OCR Routes",
+            "💰 Automatic Price Estimation from Call Transcripts (NEW)",
+            "Database Schema Migration Support (NEW)"
         ],
         "timestamp": now_berlin().isoformat()
     }
