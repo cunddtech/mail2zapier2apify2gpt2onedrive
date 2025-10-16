@@ -1050,9 +1050,9 @@ async def ensure_weclapp_db_available() -> bool:
 
 async def get_graph_token_onedrive():
     """Holt das Zugriffstoken von Microsoft Graph für OneDrive."""
-    tenant_id = os.getenv("GRAPH_TENANT_ID")
-    client_id = os.getenv("GRAPH_CLIENT_ID")
-    client_secret = os.getenv("GRAPH_CLIENT_SECRET")
+    tenant_id = os.getenv("GRAPH_TENANT_ID_ONEDRIVE") or os.getenv("GRAPH_TENANT_ID")
+    client_id = os.getenv("GRAPH_CLIENT_ID_ONEDRIVE") or os.getenv("GRAPH_CLIENT_ID")
+    client_secret = os.getenv("GRAPH_CLIENT_SECRET_ONEDRIVE") or os.getenv("GRAPH_CLIENT_SECRET")
     
     if not tenant_id or not client_id or not client_secret:
         logger.error("❌ Fehlende OneDrive-Graph API Zugangsdaten")
