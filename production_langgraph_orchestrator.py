@@ -1152,20 +1152,21 @@ async def save_to_database(
     from_contact: str,
     content: str,
     final_state: Dict
-):
-    """💾 Save processing results to database"""
+) -> int:
+    """💾 Save processing results to database and return record ID"""
     import asyncio
     
     try:
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, _save_to_db_sync, processing_result, message_type, from_contact, content, final_state)
+        record_id = await loop.run_in_executor(None, _save_to_db_sync, processing_result, message_type, from_contact, content, final_state)
+        return record_id
     except Exception as e:
         logger.error(f"❌ DB save error: {e}")
         raise
 
 
-def _save_to_db_sync(processing_result, message_type, from_contact, content, final_state):
-    """Synchronous database operations"""
+def _save_to_db_sync(processing_result, message_type, from_contact, content, final_state) -> int:
+    """Synchronous database operations - returns record ID"""
     import sqlite3
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -1221,6 +1222,7 @@ def _save_to_db_sync(processing_result, message_type, from_contact, content, fin
         
         conn.commit()
         logger.info(f"✅ Saved email {email_id} with {len(processing_result.get('attachment_results', []))} attachments")
+        return email_id
     except Exception as e:
         conn.rollback()
         raise
@@ -2280,7 +2282,48 @@ Antworten Sie mit den erforderlichen Kontakt-Details oder markieren Sie als "Pri
                 # Attachment info from state's additional_data
                 "attachments_count": state_additional_data.get("attachments_count", 0),
                 "has_attachments": state_additional_data.get("has_attachments", False),
-                "attachment_results": state_additional_data.get("attachment_results", [])
+                "attachment_results": state_additional_data.get("attachment_results", []),
+                # 💰 Price Estimate (if calculated)
+                "price_estimate": final_state.get("price_estimate"),
+                # 📊 DETAILED PROCESSING INFO (for debugging/monitoring)
+                "processing_details": {
+                    "timestamp": final_state.get("timestamp"),
+                    "message_type": message_type,
+                    "from_contact": from_contact,
+                    "workflow_executed": final_state.get("workflow_path"),
+                    "contact_lookup": {
+                        "attempted": True,
+                        "found": final_state.get("contact_match", {}).get("found", False),
+                        "source": final_state.get("contact_match", {}).get("source", "none"),
+                        "contact_id": final_state.get("contact_match", {}).get("contact_id"),
+                        "contact_name": final_state.get("contact_match", {}).get("name"),
+                        "company": final_state.get("contact_match", {}).get("company")
+                    },
+                    "ai_processing": {
+                        "executed": final_state.get("ai_analysis") is not None,
+                        "intent": final_state.get("ai_analysis", {}).get("intent"),
+                        "urgency": final_state.get("ai_analysis", {}).get("urgency"),
+                        "sentiment": final_state.get("ai_analysis", {}).get("sentiment")
+                    },
+                    "pricing": {
+                        "attempted": message_type == "call" and content,
+                        "calculated": final_state.get("price_estimate", {}).get("found", False) if final_state.get("price_estimate") else False,
+                        "amount": final_state.get("price_estimate", {}).get("total_cost") if final_state.get("price_estimate") else None,
+                        "confidence": final_state.get("price_estimate", {}).get("confidence") if final_state.get("price_estimate") else None
+                    },
+                    "tasks": {
+                        "count": len(final_state.get("tasks_generated", [])),
+                        "types": [task.get("task_type") for task in final_state.get("tasks_generated", [])]
+                    },
+                    "crm_updates": {
+                        "count": len(final_state.get("crm_updates", [])),
+                        "types": [update.get("type") for update in final_state.get("crm_updates", [])]
+                    },
+                    "attachments": {
+                        "count": state_additional_data.get("attachments_count", 0),
+                        "processed": len(state_additional_data.get("attachment_results", []))
+                    }
+                }
             }
             
             # 🎯 SEND FINAL ZAPIER NOTIFICATION
@@ -2299,12 +2342,28 @@ Antworten Sie mit den erforderlichen Kontakt-Details oder markieren Sie als "Pri
                 processing_result["notification_error"] = str(notification_error)
             
             # 💾 SAVE TO DATABASE
+            db_saved = False
+            db_record_id = None
+            db_error_msg = None
             try:
-                await save_to_database(processing_result, message_type, from_contact, content, final_state)
-                logger.info("✅ Data saved to database")
+                db_record_id = await save_to_database(processing_result, message_type, from_contact, content, final_state)
+                db_saved = True
+                logger.info(f"✅ Data saved to database (record_id: {db_record_id})")
             except Exception as db_error:
                 logger.error(f"❌ Database save error: {db_error}")
+                db_error_msg = str(db_error)
                 # Don't fail the whole process if DB save fails
+            
+            # 📝 ADD DATABASE & NOTIFICATION INFO TO RESPONSE
+            processing_result["processing_details"]["database"] = {
+                "saved": db_saved,
+                "record_id": db_record_id,
+                "error": db_error_msg
+            }
+            processing_result["processing_details"]["notification"] = {
+                "sent": processing_result.get("notification_sent", False),
+                "error": processing_result.get("notification_error")
+            }
             
             return processing_result
             

@@ -71,11 +71,21 @@ curl -X POST https://my-langgraph-agent-production.up.railway.app/webhook/ai-ema
 - ✅ Optional: Task generiert
 - ✅ Database Entry mit allen Feldern
 
-**Status:** 📋 PENDING (manuell ausführen)
+**Status:** ✅ **PASSED**
+
+**Result:**
+```json
+{
+  "workflow_path": "WEG_B" (würde sein, wenn mj@ als Contact existiert),
+  "contact_match": {"found": false} (erwartet, da mj@ nur User, nicht Contact)
+}
+```
+
+**Note:** mj@cdtechnologies.de ist KEIN CRM-Contact (nur interner User), daher WEG_A aktiviert. Test mit echtem Kunden-Contact benötigt.
 
 ---
 
-### TEST 2: Call WEG A mit Richtpreis
+### TEST 2: Call WEG A mit Richtpreis (OHNE Pricing - Bugfix deployed)
 
 **Vorbereitung:**
 ```bash
@@ -107,7 +117,28 @@ curl -X POST https://my-langgraph-agent-production.up.railway.app/webhook/ai-cal
 - ✅ Notification Email mit Preis
 - ✅ Database Entry mit `price_estimate_json`
 
-**Status:** 📋 PENDING (manuell ausführen)
+**Status:** ⚠️ **PARTIAL FAIL** - Pricing Code nicht ausgeführt
+
+**Result:**
+```json
+{
+  "workflow_path": "WEG_A",
+  "contact_match": {"found": false},
+  "ai_analysis": {
+    "intent": "sales",
+    "key_topics": ["Dacheindeckung", "Ziegel", "Dämmung"]
+  },
+  "tasks_generated": [...]
+}
+```
+
+**Problem identifiziert:** 
+- ❌ **Pricing-Code war NUR in WEG B implementiert!**
+- ❌ **WEG A Calls bekamen KEINE Richtpreis-Berechnung**
+
+**Fix:** Commit f409600 - Pricing nun auch in WEG A Node
+**Deployment:** In progress (5-10 Min)
+**Re-Test:** Nach Deployment nötig
 
 ---
 
