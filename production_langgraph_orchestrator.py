@@ -61,6 +61,13 @@ import asyncio
 from contextlib import asynccontextmanager
 import requests
 
+# 💰 Richtpreis-Berechnung für Anrufe
+from modules.pricing.estimate_from_call import (
+    calculate_estimate_from_transcript,
+    format_estimate_for_email,
+    ProjectEstimate
+)
+
 # INLINE Graph API Functions (Railway deployment workaround)
 async def get_graph_token_mail():
     """Holt das Zugriffstoken von Microsoft Graph für Mail."""
@@ -156,6 +163,35 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
         action_options = notification_data.get("action_options", [])
         email_id = notification_data.get("email_id", "unknown")
         webhook_url = notification_data.get("webhook_reply_url", "")
+        
+        # 💰 Build price estimate HTML if present (for calls)
+        price_estimate = notification_data.get("price_estimate")
+        has_price_estimate = notification_data.get("has_price_estimate", False)
+        price_estimate_html = ""
+        
+        if has_price_estimate and price_estimate:
+            # Use the formatting function from the pricing module
+            from modules.pricing.estimate_from_call import ProjectEstimate
+            
+            # Convert dict back to ProjectEstimate object
+            estimate_obj = ProjectEstimate(
+                found=True,
+                project_type=price_estimate.get("project_type", ""),
+                area_sqm=price_estimate.get("area_sqm"),
+                material=price_estimate.get("material", ""),
+                work_type=price_estimate.get("work_type", ""),
+                material_cost=price_estimate.get("material_cost", 0.0),
+                labor_cost=price_estimate.get("labor_cost", 0.0),
+                additional_cost=price_estimate.get("additional_cost", 0.0),
+                total_cost=price_estimate.get("total_cost", 0.0),
+                confidence=price_estimate.get("confidence", 0.0),
+                calculation_basis=price_estimate.get("calculation_basis", []),
+                additional_services=price_estimate.get("additional_services", []),
+                notes=price_estimate.get("notes", "")
+            )
+            
+            price_estimate_html = format_estimate_for_email(estimate_obj)
+            logger.info(f"✅ Generated price estimate HTML for notification")
         
         # Build attachments HTML if present
         attachments_count = notification_data.get("attachments_count", 0)
@@ -296,6 +332,7 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
 <p><strong>Stimmung:</strong> {ai_analysis.get('sentiment', 'unbekannt')}</p>
 {attachments_html}
 </div>
+{price_estimate_html}
 <div class="action-buttons">
 <h3>👆 Wähle eine Aktion:</h3>
 {buttons_html}
@@ -538,6 +575,10 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
             
             # Action Options (dynamic based on potential matches)
             "action_options": action_options,
+            
+            # 💰 Price Estimate (if available for calls)
+            "price_estimate": processing_result.get("price_estimate"),
+            "has_price_estimate": processing_result.get("price_estimate", {}).get("found", False) if processing_result.get("price_estimate") else False,
             
             "responsible_employee": "mj@cdtechnologies.de",
             "webhook_reply_url": "https://my-langgraph-agent-production.up.railway.app/webhook/contact-action"
@@ -1886,6 +1927,76 @@ Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
                 except Exception as e:
                     logger.error(f"❌ Call analysis error: {e}")
                     # Continue without analysis - not critical
+            
+            # 💰 NEUE FEATURE: Richtpreis-Berechnung für Dacharbeiten aus Transcript
+            if message_type == "call" and state.get('content'):
+                try:
+                    logger.info(f"💰 Calculating price estimate from call transcript...")
+                    
+                    # Run estimate calculation
+                    estimate = calculate_estimate_from_transcript(
+                        transcript=state.get('content', ''),
+                        caller_info={
+                            "name": contact_match.get("name") if contact_match else None,
+                            "company": contact_match.get("company") if contact_match else None
+                        }
+                    )
+                    
+                    if estimate.found:
+                        logger.info(f"✅ Price Estimate: {estimate.total_cost:.2f} EUR (confidence: {estimate.confidence:.0%})")
+                        
+                        # Store estimate in state
+                        state["price_estimate"] = {
+                            "project_type": estimate.project_type,
+                            "area_sqm": estimate.area_sqm,
+                            "material": estimate.material,
+                            "work_type": estimate.work_type,
+                            "material_cost": estimate.material_cost,
+                            "labor_cost": estimate.labor_cost,
+                            "additional_cost": estimate.additional_cost,
+                            "total_cost": estimate.total_cost,
+                            "confidence": estimate.confidence,
+                            "calculation_basis": estimate.calculation_basis,
+                            "additional_services": estimate.additional_services,
+                            "notes": estimate.notes
+                        }
+                        
+                        # Add estimate to description
+                        description += f"\n\n### 💰 Automatische Kostenschätzung:\n\n"
+                        description += f"**Projekt:** {estimate.project_type.title()}\n"
+                        description += f"**Fläche:** {estimate.area_sqm:.0f} m²\n"
+                        description += f"**Material:** {estimate.material}\n"
+                        description += f"**Arbeitsart:** {estimate.work_type}\n\n"
+                        description += f"**Kosten:**\n"
+                        description += f"- Material: {estimate.material_cost:,.2f} EUR\n"
+                        description += f"- Arbeit: {estimate.labor_cost:,.2f} EUR\n"
+                        if estimate.additional_cost > 0:
+                            description += f"- Zusatzleistungen: {estimate.additional_cost:,.2f} EUR\n"
+                        description += f"- **GESAMT (Richtwert): {estimate.total_cost:,.2f} EUR**\n\n"
+                        description += f"**Genauigkeit:** {estimate.confidence:.0%}\n"
+                        description += f"_{estimate.notes}_\n"
+                        
+                        # Create automatic task for quote preparation
+                        state["tasks_generated"].append({
+                            "title": f"Angebot vorbereiten: {estimate.project_type.title()} ({estimate.area_sqm:.0f} m²)",
+                            "description": f"Richtpreis: {estimate.total_cost:,.2f} EUR\n\nBasis:\n" + "\n".join(f"- {basis}" for basis in estimate.calculation_basis),
+                            "priority": "high" if estimate.total_cost > 10000 else "medium",
+                            "due_date": (now_berlin() + timedelta(days=2)).isoformat(),
+                            "source": "price_estimate"
+                        })
+                        
+                        logger.info(f"✅ Price estimate added to communication log and task generated")
+                    else:
+                        logger.info(f"⚠️ No price estimate possible: {estimate.notes}")
+                        # Still store the reason in state
+                        state["price_estimate"] = {
+                            "found": False,
+                            "notes": estimate.notes
+                        }
+                
+                except Exception as e:
+                    logger.error(f"❌ Price estimate error: {e}")
+                    # Continue without estimate - not critical
             
             # Create WeClapp crmEvent
             # Determine correct type based on message type and direction
