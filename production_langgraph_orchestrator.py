@@ -3475,9 +3475,9 @@ async def process_attachment_ocr(
                                         
                                         # ✨ OneDrive Upload (Phase 1.4)
                                         try:
-                                            # OneDrive immer mit info@cdtechnologies.de (zentraler Account)
-                                            user_email = "info@cdtechnologies.de"
-                                            access_token = await get_graph_token_onedrive()
+                                            # TEMP FIX: Use MAIL token for OneDrive (same tenant)
+                                            user_email = "mj@cdtechnologies.de"  # Use mj@ instead of info@
+                                            access_token = await get_graph_token_mail()  # Use mail token instead of onedrive
                                             
                                             if not access_token:
                                                 logger.warning("⚠️ No OneDrive access_token available - skipping upload")
