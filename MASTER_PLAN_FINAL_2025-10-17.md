@@ -1099,4 +1099,188 @@ modules/weclapp/
 - **Langfristig (+3-4h):** CRM Tasks + Invoice Assignment
 - **TOTAL:** 18-26 Stunden für komplettes Multi-Channel System
 
+---
+
+## 📋 GPT PROMPTS DOKUMENTATION (Apify v3.x)
+
+### **QUELLE:** Apify Actor `cdtech~mail2zapier2apify2gpt2onedrive` (Build 3.3.7)
+**Datum:** 17. Oktober 2025  
+**Status:** ✅ In Produktion übernommen
+
+### **1. SCAN ANALYSIS PROMPT** (`analyse_scan_prompt.py`)
+
+**Zweck:** Analysiert OCR-Text aus Scans (Rechnungen, Lieferscheine, Aufmaße, etc.)
+
+**Struktur:**
+```python
+def build_analyse_scan_prompt(ocr_text: str, handwriting_text: str, metadata: dict) -> str:
+```
+
+**Key Features:**
+- 📄 **Dokumenttypen:** Eingangs-/Ausgangsrechnungen, Aufmaßblätter, Lieferscheine, Angebote, Quittungen, amtliche Schreiben
+- 📊 **Kategorien:** Anfrage, Auftrag, Rechnung, Lieferschein, Leistungsnachweis, Reklamation, Behördlich, Sonstiges
+- 🎯 **Richtungserkennung:** C&D Tech als Empfänger → Eingang, als Absender → Ausgang
+- 🏢 **Firmen-Erkennung:** cdtechnologies.de, torcentersuedwest.de, Markus Jaszczyk
+- ⚡ **Aufmaß-Verdacht:** Spezielle Erkennung für Maße (Höhe/Breite)
+- 📁 **Fallback:** "Sonstiges" wenn keine klare Zuordnung möglich
+
+**JSON Output:**
+```json
+{
+  "dokumenttyp": "...",
+  "richtung": "eingang/ausgang",
+  "rolle": "kunde/lieferant",
+  "kunde": "...",
+  "lieferant": "...",
+  "projektnummer": "...",
+  "datum": "...",
+  "datum_dokument": "...",
+  "summe": "...",
+  "notizen": "...",
+  "dateiname": "...",
+  "ordnerstruktur": "...",
+  "zu_pruefen": true/false
+}
+```
+
+---
+
+### **2. EMAIL ANALYSIS PROMPT** (`analyse_mail_prompt.py`)
+
+**Zweck:** Analysiert Email-Inhalte + Anhänge mit voller CRM-Integration
+
+**Struktur:**
+```python
+def build_analyse_mail_prompt(body_text: str, metadata: dict, ocr_text: str, 
+                               handwriting_text: str = "", attachments: list = []) -> str:
+```
+
+**Key Features:**
+- 📧 **Email + Anhänge:** Kombinierte Analyse von Body + OCR + Handschrift
+- 🎯 **Sales Pipeline Integration:** 20 Verkaufsphasen (0% - 100%)
+- 📊 **Erweiterte Felder:** 
+  - Kontaktdaten: Telefon, Handy, Email, Adresse
+  - CRM: Kundennummer, Auftragsnummer, Projektnummer
+  - Klassifizierung: Privat/Geschäftlich, Anliegen, Status
+  - Priorität: Dringend (boolean)
+- 📁 **Intelligente Ordnerstruktur:**
+  - Projekt: `Scan/Projekte/{kunde}/{projekt}/{typ}`
+  - Buchhaltung Eingang: `Scan/Buchhaltung/{jahr}/{monat}/Eingang/{lieferant}`
+  - Buchhaltung Ausgang: `Scan/Buchhaltung/{jahr}/{monat}/Ausgang/{kunde}`
+  - Zu prüfen: `Scan/Zu prüfen/{jahr}/{monat}/Unbekannt`
+- 🔄 **Smart Fallbacks:** Fehlende Infos werden geschätzt/mit Standardwerten belegt
+
+**Sales Phases (CRM Integration):**
+```
+- Verloren (0%)
+- Anfrage (4%)
+- Nicht erreicht (5%)
+- Später anrufen / Telefontermin vereinbart (6%)
+- Richtpreis senden (7%)
+- Aufmaßtermin vor Ort nach Richtpreis (8%)
+- Vor Ort Termin bestätigt (9%)
+- Aufmaß (10%)
+- Anfrage extern (20%)
+- Erstes Angebot erstellt (25%)
+- Wiedervorlage (30%)
+- Auftragsbestätigung Kunde an uns (35%)
+- Bestellung an Lieferanten (40%)
+- Warten auf Material (50%)
+- Terminierung Montage (60%)
+- Probleme / Fehler beheben (70%)
+- Rechnung (75%)
+- Zahlungseingang (80%)
+- Kundenfragebogen (90%)
+- Abgeschlossen (100%)
+```
+
+**JSON Output (Extended):**
+```json
+{
+  "dokumenttyp": "...",
+  "richtung": "eingang/ausgang",
+  "rolle": "kunde/lieferant",
+  "kunde": "...",
+  "lieferant": "...",
+  "projektnummer": "...",
+  "auftragsnummer": "...",
+  "kundennummer": "...",
+  "telefonnr": "...",
+  "handynnr": "...",
+  "emailadresse": "...",
+  "adresse": "...",
+  "abweichende_adresse": "...",
+  "privat_geschaeftlich": "...",
+  "anliegen": "...",
+  "status": "...",
+  "datum_eingang": "...",
+  "datum_dokument": "...",
+  "dringend": false,
+  "summe": "...",
+  "notizen": "...",
+  "dateiname": "...",
+  "ordnerstruktur": "...",
+  "zu_pruefen": false,
+  "anhaenge": [
+    { "dateiname": "...", "typ": "PDF/Bild/..." }
+  ],
+  "verkaufsphase": "..."
+}
+```
+
+---
+
+### **3. VERWENDUNG IN PRODUCTION**
+
+**Aktueller Stand (17. Oktober 2025):**
+
+✅ **Scan Prompt:** Verwendet in `modules/gpt/classify_document_with_gpt.py`
+```python
+from modules.gpt.prompts.analyse_scan_prompt import build_analyse_scan_prompt
+prompt = build_analyse_scan_prompt(ocr_text=ocr_text, 
+                                    handwriting_text=handwriting_text, 
+                                    metadata=metadata)
+```
+
+✅ **Email Prompt:** Verwendet in `modules/gpt/classify_email_with_gpt.py`
+```python
+from modules.gpt.prompts.analyse_mail_prompt import build_analyse_mail_prompt
+prompt = build_analyse_mail_prompt(body_text=body_text, 
+                                    metadata=metadata, 
+                                    ocr_text=ocr_text,
+                                    handwriting_text=handwriting_text,
+                                    attachments=attachments)
+```
+
+**Integration in Railway Production:**
+- Datei: `production_langgraph_orchestrator.py`
+- Funktion: `process_attachment_ocr()` (Lines 3327-3404)
+- GPT-4 Model: `gpt-4` via OpenAI API
+- Timeout: 30 Sekunden
+
+**Performance:**
+- OCR + GPT Analyse: ~15 Sekunden
+- Token Limit: ~8K Input (automatische Kürzung bei Überschreitung)
+
+---
+
+### **4. VERBESSERUNGSPOTENTIAL**
+
+**Bereits implementiert:**
+- ✅ Debug Input Summary (zeigt welche Daten vorhanden sind)
+- ✅ Aufmaß-Hint bei verdächtigen Mustern
+- ✅ Fallback-Logik für unklare Dokumente
+- ✅ Flexible Metadata-Handling
+
+**Geplante Erweiterungen:**
+- 📋 **Multi-Language Support:** Englische Dokumente erkennen
+- 🔍 **Pattern Matching:** Regex-basierte Pre-Checks vor GPT
+- 💰 **Währungserkennung:** EUR/USD/CHF automatisch
+- 📅 **Datum-Normalisierung:** Verschiedene Formate standardisieren
+- 🏗️ **Baustellen-Erkennung:** Projektadresse aus OCR extrahieren
+
+---
+
+**NÄCHSTER SCHRITT:** Testing mit Email "009" → OneDrive Upload validieren
+
 
