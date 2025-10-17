@@ -3197,7 +3197,9 @@ async def process_attachments_intelligent(
                             file_bytes=file_bytes,
                             filename=att_name,
                             content_type=att_type,
-                            document_type=expected_type
+                            document_type=expected_type,
+                            email_data=email_data,
+                            attachment=attachment
                         )
                         
                         results.append({
@@ -3228,7 +3230,9 @@ async def process_attachment_ocr(
     file_bytes: bytes,
     filename: str,
     content_type: str,
-    document_type: str
+    document_type: str,
+    email_data: Dict = None,
+    attachment: Dict = None
 ) -> Dict:
     """
     🤖 OCR PROCESSING WITH TYPE-SPECIFIC ROUTES
@@ -3263,6 +3267,13 @@ async def process_attachment_ocr(
             
             # Generate OneDrive public link for the attachment
             try:
+                # Check if email_data and attachment are provided
+                if not email_data or not attachment:
+                    logger.warning("⚠️ email_data or attachment missing, falling back to base64 OCR")
+                    result["text"] = "[OCR Error: Missing email_data or attachment for public URL generation]"
+                    result["route"] = "invoice_ocr_failed"
+                    return result
+                
                 from modules.msgraph.generate_public_link import generate_public_link
                 public_url = await generate_public_link(
                     user_email=email_data.get("user_email", "mj@cdtechnologies.de"),
