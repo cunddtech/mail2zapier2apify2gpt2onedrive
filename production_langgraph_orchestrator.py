@@ -3228,6 +3228,12 @@ async def process_attachments_intelligent(
                 
                 logger.info(f"📎 Processing: {att_name} ({att_type}, {att_size} bytes)")
                 
+                # 🔧 WORKAROUND: Treat message/rfc822 as potential PDF attachments
+                # (Outlook sometimes wraps PDFs as RFC822 messages)
+                if att_type == "message/rfc822":
+                    logger.info(f"📧 Detected RFC822 message - attempting to extract PDF content...")
+                    att_type = "application/pdf"  # Force PDF processing
+                
                 # Only process PDFs and images
                 if att_type not in ["application/pdf", "image/jpeg", "image/png", "image/jpg"]:
                     logger.warning(f"⚠️ Skipping unsupported type: {att_type}")
