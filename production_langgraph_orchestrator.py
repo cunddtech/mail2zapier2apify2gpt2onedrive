@@ -3271,33 +3271,16 @@ async def process_attachment_ocr(
         
         # Choose PDF.co route based on document type
         if document_type == "invoice":
-            # PDF.co Invoice Parser - Use public URL instead of base64
+            # PDF.co Invoice Parser - Use base64 data
             logger.info("📊 Using PDF.co Invoice Parser...")
             
-            # Generate OneDrive public link for the attachment
             try:
-                # Check if email_data and attachment are provided
-                if not email_data or not attachment:
-                    logger.warning("⚠️ email_data or attachment missing, falling back to base64 OCR")
-                    result["text"] = "[OCR Error: Missing email_data or attachment for public URL generation]"
-                    result["route"] = "invoice_ocr_failed"
-                    return result
-                
-                from modules.msgraph.generate_public_link import generate_public_link
-                public_url = await generate_public_link(
-                    user_email=email_data.get("user_email", "mj@cdtechnologies.de"),
-                    message_id=email_data.get("message_id"),
-                    attachment_id=attachment.get("id"),
-                    access_token=email_data.get("access_token")
-                )
-                logger.info(f"🔗 Generated public URL for invoice: {public_url[:100]}...")
-                
-                # Call AI Invoice Parser with URL
+                # Call AI Invoice Parser with base64 data
                 async with httpx.AsyncClient(timeout=60.0) as client:
                     response = await client.post(
                         "https://api.pdf.co/v1/ai-invoice-parser",
                         headers={"x-api-key": pdfco_api_key},
-                        json={"url": public_url}
+                        json={"file": file_base64}
                     )
                     
                     if response.status_code == 200:
