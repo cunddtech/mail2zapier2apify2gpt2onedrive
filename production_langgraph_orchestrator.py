@@ -3545,6 +3545,39 @@ async def process_attachment_ocr(
                                                             logger.warning(f"   ⚠️ Sharing link exception: {sharing_error}")
                                                             result["onedrive_sharing_link"] = web_url  # Fallback to web URL
                                                         
+                                                        # ✨ PHASE 3: Save invoice to tracking database
+                                                        if result["structured"].get("document_type") in ["Rechnung", "Eingangsrechnung", "Ausgangsrechnung", "invoice"]:
+                                                            try:
+                                                                from modules.database.invoice_tracking_db import save_invoice
+                                                                
+                                                                invoice_data = {
+                                                                    "invoice_number": result["structured"].get("invoice_number"),
+                                                                    "invoice_date": result["structured"].get("invoice_date"),
+                                                                    "due_date": result["structured"].get("due_date"),
+                                                                    "amount_total": result["structured"].get("total_amount"),
+                                                                    "amount_net": result["structured"].get("net_amount"),
+                                                                    "amount_tax": result["structured"].get("tax_amount"),
+                                                                    "vendor_name": result["structured"].get("vendor_name"),
+                                                                    "customer_name": result["structured"].get("customer_name"),
+                                                                    "direction": result["structured"].get("direction", "incoming"),
+                                                                    "status": "open",
+                                                                    "document_hash": result.get("document_hash"),
+                                                                    "onedrive_path": f"{folder_path}/{target_filename}",
+                                                                    "onedrive_link": result.get("onedrive_sharing_link"),
+                                                                    "email_message_id": email_data.get("message_id") if email_data else None
+                                                                }
+                                                                
+                                                                # Nur speichern wenn Rechnungsnummer vorhanden
+                                                                if invoice_data["invoice_number"]:
+                                                                    invoice_id = save_invoice(invoice_data)
+                                                                    result["invoice_id"] = invoice_id
+                                                                    logger.info(f"   💾 Invoice saved to DB: ID={invoice_id}")
+                                                                else:
+                                                                    logger.info("   ⚠️ No invoice number - skipping DB save")
+                                                            except Exception as db_error:
+                                                                logger.warning(f"   ⚠️ Invoice DB save failed: {db_error}")
+                                                        
+                                                        
                                                     else:
                                                         logger.warning(f"⚠️ OneDrive upload failed: {upload_response.status_code}")
                                                         logger.warning(f"   Response: {upload_response.text[:500]}")
