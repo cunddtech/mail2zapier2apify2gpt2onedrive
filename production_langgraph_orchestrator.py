@@ -237,7 +237,7 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
                     preview = ocr_text[:150] + "..." if len(ocr_text) > 150 else ocr_text
                     detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;📝 Inhalt: {preview}"
                 
-                # Add key structured data if available
+                # ✨ PHASE 2: Add structured data if available
                 if structured_data:
                     if structured_data.get("invoice_number"):
                         detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🔢 Rechnungs-Nr: {structured_data['invoice_number']}"
@@ -245,6 +245,27 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
                         detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;💰 Betrag: {structured_data['total_amount']}"
                     if structured_data.get("vendor_name"):
                         detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🏢 Lieferant: {structured_data['vendor_name']}"
+                    if structured_data.get("invoice_date"):
+                        detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;📅 Rechnungsdatum: {structured_data['invoice_date']}"
+                    if structured_data.get("due_date"):
+                        detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;⏰ Fällig am: {structured_data['due_date']}"
+                    if structured_data.get("direction"):
+                        direction_icon = "📥" if structured_data['direction'] == "incoming" else "📤"
+                        direction_text = "Eingang (AN uns)" if structured_data['direction'] == "incoming" else "Ausgang (VON uns)"
+                        detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;{direction_icon} Richtung: {direction_text}"
+                
+                # ✨ PHASE 2: Add OneDrive links if available
+                onedrive_sharing_link = result.get("onedrive_sharing_link")
+                onedrive_web_url = result.get("onedrive_web_url")
+                onedrive_path = result.get("onedrive_path")
+                
+                if onedrive_sharing_link:
+                    detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🔗 <a href='{onedrive_sharing_link}'>OneDrive Link öffnen</a>"
+                elif onedrive_web_url:
+                    detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🔗 <a href='{onedrive_web_url}'>OneDrive Link öffnen</a>"
+                
+                if onedrive_path:
+                    detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;📂 Ablage: {onedrive_path}"
                 
                 attachment_details.append(detail_line)
             
@@ -3463,9 +3484,27 @@ async def process_attachment_ocr(
                                                         logger.info(f"   📂 Path: {folder_path}/{target_filename}")
                                                         logger.info(f"   🔗 Web URL: {web_url[:80]}...")
                                                         
-                                                        # TODO: Generate sharing link (Phase 2)
-                                                        # from modules.msgraph.generate_public_link import generate_sharing_link
-                                                        # public_link = await generate_sharing_link(user_email, file_id, access_token)
+                                                        # ✨ PHASE 2: Generate sharing link
+                                                        try:
+                                                            from modules.msgraph.generate_onedrive_sharing_link import generate_onedrive_sharing_link
+                                                            
+                                                            sharing_link = await generate_onedrive_sharing_link(
+                                                                user_email=user_email,
+                                                                file_id=file_id,
+                                                                access_token=access_token,
+                                                                link_type="view",  # readonly
+                                                                scope="organization"  # nur innerhalb Organisation
+                                                            )
+                                                            
+                                                            if sharing_link:
+                                                                result["onedrive_sharing_link"] = sharing_link
+                                                                logger.info(f"   🔗 Sharing Link: {sharing_link[:80]}...")
+                                                            else:
+                                                                logger.warning("   ⚠️ Could not generate sharing link - using web URL")
+                                                                result["onedrive_sharing_link"] = web_url
+                                                        except Exception as sharing_error:
+                                                            logger.warning(f"   ⚠️ Sharing link exception: {sharing_error}")
+                                                            result["onedrive_sharing_link"] = web_url  # Fallback to web URL
                                                         
                                                     else:
                                                         logger.warning(f"⚠️ OneDrive upload failed: {upload_response.status_code}")
