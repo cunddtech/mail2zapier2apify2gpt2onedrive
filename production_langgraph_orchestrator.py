@@ -811,9 +811,30 @@ def initialize_contact_cache():
     CREATE INDEX IF NOT EXISTS idx_sender ON email_data(sender)
     """)
     
+    # Create email_attachments table (for attachment tracking)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS email_attachments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email_message_id TEXT NOT NULL,
+        filename TEXT NOT NULL,
+        content_type TEXT,
+        size_bytes INTEGER,
+        file_hash TEXT,
+        ocr_text TEXT,
+        ocr_route TEXT,
+        onedrive_path TEXT,
+        onedrive_link TEXT,
+        processed_date TEXT NOT NULL
+    )
+    """)
+    
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_email_message_id ON email_attachments(email_message_id)
+    """)
+    
     conn.commit()
     conn.close()
-    logger.info("✅ Email Database initialized (email_data.db)")
+    logger.info("✅ Email Database initialized (email_data.db + email_attachments)")
 
 
 async def lookup_contact_in_cache(email: str) -> Optional[Dict[str, Any]]:
@@ -1516,23 +1537,21 @@ def _save_to_db_sync(processing_result, message_type, from_contact, content, fin
         
         email_id = cursor.lastrowid
         
-        # Insert attachments
+        # Insert attachments (use correct table name: email_attachments)
         for att in processing_result.get("attachment_results", []):
             cursor.execute("""
-            INSERT INTO attachments (
-                email_id, filename, content_type, size_bytes,
-                document_type, ocr_route, ocr_text, ocr_structured_data,
-                processing_timestamp
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO email_attachments (
+                email_message_id, filename, content_type, size_bytes,
+                ocr_text, ocr_route, file_hash, processed_date
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                email_id,
+                email_data.get("message_id", ""),
                 att.get("filename"),
                 att.get("type"),
                 att.get("size"),
-                att.get("document_type"),
-                att.get("ocr_route"),
                 att.get("ocr_text", "")[:1000],
-                json.dumps(att.get("structured_data", {}), ensure_ascii=False),
+                att.get("ocr_route", ""),
+                att.get("file_hash", ""),
                 now_berlin().isoformat()
             ))
         
@@ -3239,32 +3258,79 @@ async def process_attachment_ocr(
         
         # Choose PDF.co route based on document type
         if document_type == "invoice":
-            # PDF.co Invoice Parser
+            # PDF.co Invoice Parser - Use public URL instead of base64
             logger.info("📊 Using PDF.co Invoice Parser...")
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    "https://api.pdf.co/v1/pdf/convert/to/json",
-                    headers={"x-api-key": pdfco_api_key},
-                    json={"file": file_base64, "inline": True, "async": False}
+            
+            # Generate OneDrive public link for the attachment
+            try:
+                from modules.msgraph.generate_public_link import generate_public_link
+                public_url = await generate_public_link(
+                    user_email=email_data.get("user_email", "mj@cdtechnologies.de"),
+                    message_id=email_data.get("message_id"),
+                    attachment_id=attachment.get("id"),
+                    filename=filename
                 )
+                logger.info(f"🔗 Generated public URL for invoice: {public_url[:100]}...")
                 
-                if response.status_code == 200:
-                    data = response.json()
-                    if data.get("error") == False:
-                        body = data.get("body", {})
-                        result["text"] = json.dumps(body, ensure_ascii=False)[:500]
-                        result["structured"] = {
-                            "invoice_number": body.get("invoiceNumber", ""),
-                            "total_amount": body.get("total", ""),
-                            "vendor_name": body.get("companyName", ""),
-                            "invoice_date": body.get("invoiceDate", ""),
-                            "due_date": body.get("dueDate", "")
-                        }
-                        result["route"] = "invoice_ocr"
-                        logger.info(f"✅ Invoice: {result['structured'].get('invoice_number', 'N/A')}")
+                # Call AI Invoice Parser with URL
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    response = await client.post(
+                        "https://api.pdf.co/v1/ai-invoice-parser",
+                        headers={"x-api-key": pdfco_api_key},
+                        json={"url": public_url}
+                    )
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        if data.get("error") == False:
+                            job_id = data.get("jobId")
+                            logger.info(f"✅ Invoice parser job created: {job_id}")
+                            
+                            # Poll for results
+                            for attempt in range(10):
+                                await asyncio.sleep(3)
+                                job_response = await client.post(
+                                    "https://api.pdf.co/v1/job/check",
+                                    headers={"x-api-key": pdfco_api_key},
+                                    json={"jobid": job_id}
+                                )
+                                
+                                if job_response.status_code == 200:
+                                    job_data = job_response.json()
+                                    if job_data.get("status") == "success":
+                                        body = job_data.get("body", {})
+                                        invoice_data = body.get("invoice") or body.get("header") or {}
+                                        vendor = body.get("vendor") or {}
+                                        
+                                        result["text"] = json.dumps(body, ensure_ascii=False)[:500]
+                                        result["structured"] = {
+                                            "invoice_number": invoice_data.get("invoiceNumber") or invoice_data.get("invoice_number", ""),
+                                            "total_amount": invoice_data.get("total") or invoice_data.get("totalAmount", ""),
+                                            "vendor_name": vendor.get("name") or vendor.get("companyName", ""),
+                                            "invoice_date": invoice_data.get("date") or invoice_data.get("invoiceDate", ""),
+                                            "due_date": invoice_data.get("dueDate", "")
+                                        }
+                                        result["route"] = "invoice_ocr"
+                                        logger.info(f"✅ Invoice parsed: {result['structured'].get('invoice_number', 'N/A')}")
+                                        break
+                                    elif job_data.get("status") == "error":
+                                        result["text"] = f"[OCR Error: {job_data.get('error')}]"
+                                        result["route"] = "invoice_ocr_failed"
+                                        logger.warning(f"⚠️ Invoice OCR failed: {job_data.get('error')}")
+                                        break
+                        else:
+                            result["text"] = f"[OCR Error: {data.get('message')}]"
+                            result["route"] = "invoice_ocr_failed"
+                            logger.warning(f"⚠️ Invoice parser error: {data.get('message')}")
                     else:
-                        result["text"] = f"[OCR Error: {data.get('message')}]"
+                        result["text"] = f"[OCR Error: HTTP {response.status_code}]"
                         result["route"] = "invoice_ocr_failed"
+                        logger.warning(f"⚠️ Invoice parser HTTP error: {response.status_code}")
+                        
+            except Exception as e:
+                logger.error(f"❌ Invoice OCR exception: {e}")
+                result["text"] = f"[OCR Error: {str(e)}]"
+                result["route"] = "invoice_ocr_failed"
         
         elif document_type == "delivery_note":
             # PDF.co Handwriting OCR
