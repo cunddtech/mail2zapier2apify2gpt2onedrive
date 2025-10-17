@@ -613,10 +613,13 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
             # AI Analysis (flattened for Zapier)
             "ai_analysis": processing_result.get("ai_analysis", {}),
             
-            # Attachments Info
+            # Attachments Info (clean up file_bytes for JSON serialization)
             "attachments_count": processing_result.get("attachments_count", 0),
             "has_attachments": processing_result.get("has_attachments", False),
-            "attachment_results": processing_result.get("attachment_results", []),
+            "attachment_results": [
+                {k: v for k, v in att.items() if k != "file_bytes"}
+                for att in processing_result.get("attachment_results", [])
+            ],
             
             # Potential Matches (if any)
             "potential_matches": potential_matches,
