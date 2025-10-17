@@ -3125,7 +3125,8 @@ async def process_attachments_intelligent(
     user_email: str,
     access_token: str,
     subject: str,
-    document_type_hint: str = None  # 🎯 NEW: Accept hint from Zapier
+    document_type_hint: str = None,  # 🎯 NEW: Accept hint from Zapier
+    email_direction: str = "incoming"  # ✨ NEW: For direction detection
 ) -> List[Dict]:
     """
     📎 INTELLIGENT ATTACHMENT PROCESSING
@@ -3201,7 +3202,9 @@ async def process_attachments_intelligent(
                         email_data_dict = {
                             "user_email": user_email,
                             "message_id": message_id,
-                            "access_token": access_token
+                            "access_token": access_token,
+                            "subject": subject,
+                            "email_direction": email_direction
                         }
                         
                         # Choose OCR route based on type
@@ -3317,6 +3320,176 @@ async def process_attachment_ocr(
                             result["text"] = ocr_text[:1000] if ocr_text else "[No text extracted]"
                             result["route"] = "invoice_ocr"
                             logger.info(f"✅ Invoice OCR completed: {len(ocr_text)} chars extracted")
+                            
+                            # ✨ NEW: GPT-4 Analyse des OCR-Textes
+                            try:
+                                from modules.gpt.classify_document_with_gpt import classify_document_with_gpt
+                                
+                                logger.info("🤖 Starting GPT-4 document analysis...")
+                                gpt_analysis = classify_document_with_gpt(
+                                    ocr_text=ocr_text,
+                                    handwriting_text="",
+                                    metadata={
+                                        "email_subject": email_data.get("subject", "") if email_data else "",
+                                        "filename": filename,
+                                        "email_direction": email_data.get("email_direction", "incoming") if email_data else "incoming",
+                                        "document_type": document_type
+                                    }
+                                )
+                                
+                                if not gpt_analysis.get("error"):
+                                    # Strukturierte Daten extrahieren
+                                    result["structured"] = {
+                                        "invoice_number": gpt_analysis.get("rechnungsnummer", ""),
+                                        "total_amount": gpt_analysis.get("betrag", ""),
+                                        "vendor_name": gpt_analysis.get("lieferant", ""),
+                                        "customer_name": gpt_analysis.get("kunde", ""),
+                                        "invoice_date": gpt_analysis.get("datum_dokument", ""),
+                                        "due_date": gpt_analysis.get("faelligkeitsdatum", ""),
+                                        "document_type": gpt_analysis.get("dokumenttyp", document_type),
+                                        "project_number": gpt_analysis.get("projektnummer", ""),
+                                        "direction": "incoming"  # Default
+                                    }
+                                    
+                                    # ✨ Task 1.3: DIRECTION DETECTION (Eingang vs Ausgang)
+                                    direction = "incoming"  # Default: Dokument AN uns
+                                    
+                                    # Methode 1: Aus GPT-Analyse (wenn vorhanden)
+                                    if gpt_analysis.get("richtung"):
+                                        gpt_direction = gpt_analysis["richtung"].lower()
+                                        if "ausgang" in gpt_direction or "outgoing" in gpt_direction:
+                                            direction = "outgoing"
+                                        elif "eingang" in gpt_direction or "incoming" in gpt_direction:
+                                            direction = "incoming"
+                                    
+                                    # Methode 2: Aus Dokumenttyp
+                                    doc_type = gpt_analysis.get("dokumenttyp", "").lower()
+                                    if "ausgangsrechnung" in doc_type or "outgoing" in doc_type:
+                                        direction = "outgoing"
+                                    elif doc_type in ["rechnung", "eingangsrechnung", "lieferschein"]:
+                                        direction = "incoming"
+                                    
+                                    # Methode 3: OCR-Text Pattern Matching (C&D Technologies Analyse)
+                                    ocr_lower = ocr_text.lower()
+                                    if "rechnungssteller: c&d technologies" in ocr_lower or "rechnungssteller c&d technologies" in ocr_lower:
+                                        direction = "outgoing"  # VON uns
+                                        logger.info("   🔍 Direction: OUTGOING (detected from OCR: 'Rechnungssteller C&D')")
+                                    elif "empfänger: c&d technologies" in ocr_lower or "empfänger c&d technologies" in ocr_lower:
+                                        direction = "incoming"  # AN uns
+                                        logger.info("   🔍 Direction: INCOMING (detected from OCR: 'Empfänger C&D')")
+                                    
+                                    # Methode 4: Email Direction (aus Zapier)
+                                    if email_data:
+                                        email_direction = email_data.get("email_direction", "").lower()
+                                        if email_direction == "outgoing" and direction == "incoming":
+                                            # Wenn Email outgoing und kein anderer Hinweis, ist es wahrscheinlich unsere Rechnung
+                                            direction = "outgoing"
+                                            logger.info("   🔍 Direction: OUTGOING (from email_direction)")
+                                    
+                                    result["structured"]["direction"] = direction
+                                    result["gpt_analysis"] = gpt_analysis  # Full GPT result for folder logic
+                                    
+                                    logger.info(f"✅ GPT-4 Analysis completed: {result['structured'].get('document_type', 'unknown')}")
+                                    logger.info(f"   📊 Direction: {direction.upper()} ({'AN uns' if direction == 'incoming' else 'VON uns'})")
+                                    if result["structured"].get("invoice_number"):
+                                        logger.info(f"   📄 Invoice: {result['structured']['invoice_number']}")
+                                    if result["structured"].get("total_amount"):
+                                        logger.info(f"   💰 Amount: {result['structured']['total_amount']}")
+                                    
+                                    # ✨ Task 1.4: ORDNERSTRUKTUR GENERIEREN & ONEDRIVE UPLOAD
+                                    try:
+                                        from modules.filegen.folder_logic import generate_folder_and_filenames
+                                        
+                                        # Kontext für Folder Logic
+                                        context = {
+                                            "dokumenttyp": result["structured"]["document_type"],
+                                            "kunde": result["structured"]["customer_name"],
+                                            "lieferant": result["structured"]["vendor_name"],
+                                            "projekt": result["structured"]["project_number"],
+                                            "datum_dokument": result["structured"]["invoice_date"]
+                                        }
+                                        
+                                        # Ordnerstruktur generieren
+                                        folder_data = generate_folder_and_filenames(
+                                            context=context,
+                                            gpt_result=gpt_analysis,
+                                            attachments=[{"filename": filename}]
+                                        )
+                                        
+                                        result["folder_data"] = folder_data
+                                        logger.info(f"📂 Folder structure: {folder_data['ordnerstruktur']}")
+                                        logger.info(f"📄 Target filename: {folder_data['pdf_filenames'][0]}")
+                                        
+                                        # ✨ OneDrive Upload (Phase 1.4)
+                                        try:
+                                            user_email = email_data.get("user_email", "mj@cdtechnologies.de") if email_data else "mj@cdtechnologies.de"
+                                            access_token = email_data.get("access_token") if email_data else None
+                                            
+                                            if not access_token:
+                                                logger.warning("⚠️ No access_token available for OneDrive upload - skipping")
+                                            else:
+                                                folder_path = folder_data["ordnerstruktur"]
+                                                target_filename = folder_data["pdf_filenames"][0]
+                                                
+                                                logger.info(f"☁️ Starting OneDrive upload to: {folder_path}/{target_filename}")
+                                                
+                                                # Upload URL für Microsoft Graph API
+                                                upload_url = f"https://graph.microsoft.com/v1.0/users/{user_email}/drive/root:/{folder_path}/{target_filename}:/content"
+                                                
+                                                headers = {
+                                                    "Authorization": f"Bearer {access_token}",
+                                                    "Content-Type": "application/octet-stream"
+                                                }
+                                                
+                                                # Upload mit httpx (async)
+                                                async with httpx.AsyncClient(timeout=60.0) as upload_client:
+                                                    upload_response = await upload_client.put(
+                                                        upload_url,
+                                                        headers=headers,
+                                                        content=file_bytes
+                                                    )
+                                                    
+                                                    if upload_response.status_code in [200, 201]:
+                                                        upload_data = upload_response.json()
+                                                        web_url = upload_data.get("webUrl", "")
+                                                        file_id = upload_data.get("id", "")
+                                                        
+                                                        result["onedrive_uploaded"] = True
+                                                        result["onedrive_path"] = f"{folder_path}/{target_filename}"
+                                                        result["onedrive_web_url"] = web_url
+                                                        result["onedrive_file_id"] = file_id
+                                                        
+                                                        logger.info(f"✅ OneDrive upload successful!")
+                                                        logger.info(f"   📂 Path: {folder_path}/{target_filename}")
+                                                        logger.info(f"   🔗 Web URL: {web_url[:80]}...")
+                                                        
+                                                        # TODO: Generate sharing link (Phase 2)
+                                                        # from modules.msgraph.generate_public_link import generate_sharing_link
+                                                        # public_link = await generate_sharing_link(user_email, file_id, access_token)
+                                                        
+                                                    else:
+                                                        logger.warning(f"⚠️ OneDrive upload failed: {upload_response.status_code}")
+                                                        logger.warning(f"   Response: {upload_response.text[:500]}")
+                                                        result["onedrive_uploaded"] = False
+                                                        result["onedrive_error"] = f"HTTP {upload_response.status_code}"
+                                        
+                                        except Exception as upload_error:
+                                            logger.error(f"❌ OneDrive upload exception: {upload_error}")
+                                            result["onedrive_uploaded"] = False
+                                            result["onedrive_error"] = str(upload_error)
+                                        
+                                    except Exception as folder_error:
+                                        logger.error(f"❌ Folder structure generation failed: {folder_error}")
+                                        result["folder_data"] = {}
+                                else:
+                                    logger.warning(f"⚠️ GPT-4 analysis returned error: {gpt_analysis.get('error')}")
+                                    result["structured"] = {}
+                                    result["gpt_analysis"] = gpt_analysis
+                                    
+                            except Exception as gpt_error:
+                                logger.error(f"❌ GPT-4 analysis failed: {gpt_error}")
+                                result["structured"] = {}
+                                result["gpt_analysis"] = {"error": str(gpt_error)}
                         else:
                             error_text = response.text if response.text else "No error message"
                             result["text"] = f"[OCR Error: HTTP {response.status_code}]"
@@ -3502,7 +3675,8 @@ async def process_email_background(
                     user_email=user_email,
                     access_token=access_token,
                     subject=subject,
-                    document_type_hint=document_type_hint  # 🎯 NEW: Pass hint to attachment processing
+                    document_type_hint=document_type_hint,  # 🎯 NEW: Pass hint to attachment processing
+                    email_direction=data.get("email_direction", "incoming")  # ✨ NEW: For direction detection
                 )
                 logger.info(f"✅ Attachments processed: {len(attachment_results)} results")
                 

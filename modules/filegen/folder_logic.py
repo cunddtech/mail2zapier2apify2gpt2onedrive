@@ -66,12 +66,20 @@ def generate_folder_and_filenames(context: dict, gpt_result: dict, attachments: 
         kunde = sanitize_path(kunde)
         lieferant = sanitize_path(lieferant)
 
+        # WICHTIG: Unterscheidung Eingang vs Ausgang!
         if dokumenttyp in ["rechnung", "eingangsrechnung"]:
             ordnerstruktur = f"Scan/Buchhaltung/{jahr}/{monat}/Eingang/{lieferant}"
         elif dokumenttyp in ["ausgangsrechnung"]:
             ordnerstruktur = f"Scan/Buchhaltung/{jahr}/{monat}/Ausgang/{kunde}"
+        elif dokumenttyp in ["lieferschein"]:
+            ordnerstruktur = f"Scan/Buchhaltung/{jahr}/{monat}/Eingang/{lieferant}"
+        elif dokumenttyp in ["angebot", "offer"]:
+            ordnerstruktur = f"Scan/Angebote/{kunde}"
         elif projekt.lower() != "unbekannt" and kunde.lower() != "unbekannt":
             ordnerstruktur = f"Scan/Projekte/{kunde}/{projekt}/{dokumenttyp.title()}"
+        else:
+            # Fallback: Allgemeine Ablage
+            ordnerstruktur = f"Scan/Sonstige/{jahr}/{monat}/{dokumenttyp.title()}"
 
     return {
         "ordnerstruktur": sanitize_path(ordnerstruktur),
@@ -79,5 +87,6 @@ def generate_folder_and_filenames(context: dict, gpt_result: dict, attachments: 
         "datum": datum,
         "dokumenttyp": dokumenttyp,
         "kunde": kunde,
-        "projekt": projekt
+        "projekt": projekt,
+        "lieferant": lieferant
     }
