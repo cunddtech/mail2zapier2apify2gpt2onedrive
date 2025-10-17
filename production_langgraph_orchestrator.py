@@ -3326,9 +3326,11 @@ async def process_attachment_ocr(
                             result["route"] = "invoice_ocr_failed"
                             logger.warning(f"⚠️ Invoice parser error: {data.get('message')}")
                     else:
-                        result["text"] = f"[OCR Error: HTTP {response.status_code}]"
+                        error_text = response.text if response.text else "No error message"
+                        result["text"] = f"[OCR Error: HTTP {response.status_code} - {error_text[:200]}]"
                         result["route"] = "invoice_ocr_failed"
                         logger.warning(f"⚠️ Invoice parser HTTP error: {response.status_code}")
+                        logger.warning(f"⚠️ PDF.co Response: {error_text[:500]}")
                         
             except Exception as e:
                 logger.error(f"❌ Invoice OCR exception: {e}")
