@@ -3271,16 +3271,44 @@ async def process_attachment_ocr(
         
         # Choose PDF.co route based on document type
         if document_type == "invoice":
-            # PDF.co Invoice Parser - Use base64 data
+            # PDF.co Invoice Parser - Upload file first, then parse
             logger.info("📊 Using PDF.co Invoice Parser...")
             
             try:
-                # Call AI Invoice Parser with base64 data
                 async with httpx.AsyncClient(timeout=60.0) as client:
+                    # Step 1: Upload file to PDF.co
+                    upload_response = await client.post(
+                        "https://api.pdf.co/v1/file/upload",
+                        headers={"x-api-key": pdfco_api_key},
+                        json={
+                            "name": filename,
+                            "file": file_base64
+                        }
+                    )
+                    
+                    if upload_response.status_code != 200:
+                        error_text = upload_response.text if upload_response.text else "No error message"
+                        result["text"] = f"[OCR Error: Upload failed - HTTP {upload_response.status_code}]"
+                        result["route"] = "invoice_ocr_failed"
+                        logger.warning(f"⚠️ PDF.co upload error: {upload_response.status_code}")
+                        logger.warning(f"⚠️ PDF.co Response: {error_text[:500]}")
+                        return result
+                    
+                    upload_data = upload_response.json()
+                    if upload_data.get("error"):
+                        result["text"] = f"[OCR Error: {upload_data.get('message')}]"
+                        result["route"] = "invoice_ocr_failed"
+                        logger.warning(f"⚠️ PDF.co upload error: {upload_data.get('message')}")
+                        return result
+                    
+                    uploaded_url = upload_data.get("url")
+                    logger.info(f"✅ File uploaded to PDF.co: {uploaded_url[:100]}...")
+                    
+                    # Step 2: Call AI Invoice Parser with uploaded file URL
                     response = await client.post(
                         "https://api.pdf.co/v1/ai-invoice-parser",
                         headers={"x-api-key": pdfco_api_key},
-                        json={"file": file_base64}
+                        json={"url": uploaded_url}
                     )
                     
                     if response.status_code == 200:
