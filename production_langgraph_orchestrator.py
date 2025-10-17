@@ -3192,13 +3192,19 @@ async def process_attachments_intelligent(
                         document_hash = hashlib.sha256(file_bytes).hexdigest()
                         logger.info(f"🔐 Document hash: {document_hash[:16]}...")
                         
+                        # Build email_data dict for OCR function
+                        email_data_dict = {
+                            "user_email": user_email,
+                            "message_id": message_id
+                        }
+                        
                         # Choose OCR route based on type
                         ocr_result = await process_attachment_ocr(
                             file_bytes=file_bytes,
                             filename=att_name,
                             content_type=att_type,
                             document_type=expected_type,
-                            email_data=email_data,
+                            email_data=email_data_dict,
                             attachment=attachment
                         )
                         
