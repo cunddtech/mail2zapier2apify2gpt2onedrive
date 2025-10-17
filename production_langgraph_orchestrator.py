@@ -115,6 +115,38 @@ async def get_graph_token_mail():
         logger.error(traceback.format_exc())
         return None
 
+async def get_graph_token_onedrive():
+    """Holt das Zugriffstoken von Microsoft Graph für OneDrive."""
+    tenant_id = os.getenv("GRAPH_TENANT_ID_ONEDRIVE")
+    client_id = os.getenv("GRAPH_CLIENT_ID_ONEDRIVE")
+    client_secret = os.getenv("GRAPH_CLIENT_SECRET_ONEDRIVE")
+    
+    if not tenant_id or not client_id or not client_secret:
+        logger.error("❌ Fehlende OneDrive-Graph API Zugangsdaten")
+        return None
+    
+    url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    data = {
+        "grant_type": "client_credentials",
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "scope": "https://graph.microsoft.com/.default"
+    }
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, headers=headers, data=data)
+            if response.status_code == 200:
+                logger.info("✅ OneDrive token obtained successfully")
+                return response.json().get("access_token")
+            else:
+                logger.error(f"❌ OneDrive token error {response.status_code}: {response.text}")
+                return None
+    except Exception as e:
+        logger.error(f"❌ OneDrive token exception: {e}")
+        return None
+
 async def fetch_email_details_with_attachments(user_email, message_id, access_token):
     """Ruft die E-Mail-Daten und Anhänge von Microsoft Graph ab."""
     email_url = f"https://graph.microsoft.com/v1.0/users/{user_email}/messages/{message_id}?$expand=attachments"
@@ -3443,8 +3475,6 @@ async def process_attachment_ocr(
                                         
                                         # ✨ OneDrive Upload (Phase 1.4)
                                         try:
-                                            from modules.auth.get_graph_token_onedrive import get_graph_token_onedrive
-                                            
                                             # OneDrive immer mit info@cdtechnologies.de (zentraler Account)
                                             user_email = "info@cdtechnologies.de"
                                             access_token = await get_graph_token_onedrive()
