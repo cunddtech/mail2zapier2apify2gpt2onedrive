@@ -3271,37 +3271,55 @@ async def process_attachment_ocr(
         
         # Choose PDF.co route based on document type
         if document_type == "invoice":
-            # PDF.co Standard OCR for invoices (simpler and more reliable)
+            # PDF.co Standard OCR for invoices (using original working method)
             logger.info("📊 Using PDF.co Standard OCR for invoice...")
             
             try:
                 async with httpx.AsyncClient(timeout=60.0) as client:
-                    response = await client.post(
-                        "https://api.pdf.co/v1/pdf/convert/to/text",
+                    # Step 1: Upload file using multipart/form-data (NOT json)
+                    files = {
+                        "file": (filename, file_bytes, "application/pdf")
+                    }
+                    upload_response = await client.post(
+                        "https://api.pdf.co/v1/file/upload",
                         headers={"x-api-key": pdfco_api_key},
-                        json={
-                            "file": file_base64,
-                            "async": False
-                        }
+                        files=files
                     )
                     
-                    if response.status_code == 200:
-                        data = response.json()
-                        if not data.get("error"):
-                            ocr_text = data.get("body", "")
+                    if upload_response.status_code != 200:
+                        error_text = upload_response.text if upload_response.text else "No error message"
+                        result["text"] = f"[OCR Error: Upload failed - {upload_response.status_code}]"
+                        result["route"] = "invoice_ocr_failed"
+                        logger.warning(f"⚠️ PDF.co upload error: {upload_response.status_code}")
+                        logger.warning(f"⚠️ Response: {error_text[:500]}")
+                    else:
+                        upload_data = upload_response.json()
+                        uploaded_url = upload_data.get("url")
+                        logger.info(f"✅ File uploaded to PDF.co: {uploaded_url[:100]}...")
+                        
+                        # Step 2: OCR with uploaded URL
+                        response = await client.post(
+                            "https://api.pdf.co/v1/pdf/convert/to/text",
+                            headers={"x-api-key": pdfco_api_key},
+                            json={
+                                "url": uploaded_url,
+                                "inline": True,
+                                "async": False,
+                                "lang": "deu+eng"
+                            }
+                            )
+                        
+                        if response.status_code == 200:
+                            ocr_text = response.text
                             result["text"] = ocr_text[:1000] if ocr_text else "[No text extracted]"
                             result["route"] = "invoice_ocr"
                             logger.info(f"✅ Invoice OCR completed: {len(ocr_text)} chars extracted")
                         else:
-                            result["text"] = f"[OCR Error: {data.get('message')}]"
+                            error_text = response.text if response.text else "No error message"
+                            result["text"] = f"[OCR Error: HTTP {response.status_code}]"
                             result["route"] = "invoice_ocr_failed"
-                            logger.warning(f"⚠️ Invoice OCR error: {data.get('message')}")
-                    else:
-                        error_text = response.text if response.text else "No error message"
-                        result["text"] = f"[OCR Error: HTTP {response.status_code}]"
-                        result["route"] = "invoice_ocr_failed"
-                        logger.warning(f"⚠️ Invoice OCR HTTP error: {response.status_code}")
-                        logger.warning(f"⚠️ PDF.co Response: {error_text[:500]}")
+                            logger.warning(f"⚠️ Invoice OCR HTTP error: {response.status_code}")
+                            logger.warning(f"⚠️ PDF.co Response: {error_text[:500]}")
                         
             except Exception as e:
                 logger.error(f"❌ Invoice OCR exception: {e}")
