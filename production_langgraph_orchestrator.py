@@ -3443,11 +3443,14 @@ async def process_attachment_ocr(
                                         
                                         # ✨ OneDrive Upload (Phase 1.4)
                                         try:
-                                            user_email = email_data.get("user_email", "mj@cdtechnologies.de") if email_data else "mj@cdtechnologies.de"
-                                            access_token = email_data.get("access_token") if email_data else None
+                                            from modules.auth.get_graph_token_onedrive import get_graph_token_onedrive
+                                            
+                                            # OneDrive immer mit info@cdtechnologies.de (zentraler Account)
+                                            user_email = "info@cdtechnologies.de"
+                                            access_token = await get_graph_token_onedrive()
                                             
                                             if not access_token:
-                                                logger.warning("⚠️ No access_token available for OneDrive upload - skipping")
+                                                logger.warning("⚠️ No OneDrive access_token available - skipping upload")
                                             else:
                                                 folder_path = folder_data["ordnerstruktur"]
                                                 target_filename = folder_data["pdf_filenames"][0]
