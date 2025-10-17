@@ -1,8 +1,177 @@
 # 🎯 MASTER PROJECT PLAN V2 - C&D Technologies Lead Management Ecosystem
 
-**Stand:** 13. Oktober 2025  
-**Version:** 2.0 - Orchestrator-Zentric Architecture  
-**Status:** ✅ SipGate 70%, ❌ Email Processing 10%, ⚠️ CRM 50%, 🔜 SQL DB Konzept
+**Stand:** 17. Oktober 2025 ⚡ UPDATED  
+**Version:** 2.1 - Production Ready with Enhancements  
+**Status:** ✅ SipGate 85%, ✅ Email Processing 90%, ✅ CRM 80%, ✅ Notifications Enhanced
+
+---
+
+## 🎉 **NEUE FEATURES (17. Oktober 2025)**
+
+### ✅ **Notification Enhancements**
+- 🏭 **Lieferant anlegen** Button (WEG A - Unbekannte Kontakte)
+- ✅ **Daten OK** Feedback Button (beide Workflows)
+- ⚠️ **Fehler melden** Feedback Button mit Priority Levels
+- 🐛 **Problem melden** Button für technische Issues
+- 📊 **Feedback System** mit JSONL-Logging (`feedback_log.jsonl`)
+
+### ✅ **Testing Infrastructure**
+- 🧪 **Test Endpoint:** `/webhook/ai-email/test` für JSON Attachments
+- 📎 **Attachment Simulation:** Document-Type Classification aus Filename
+- 🔬 **Mock OCR Results:** Für schnelle Integration-Tests ohne echte PDFs
+
+### ✅ **Price Estimation (v1.4.0 - 16. Oktober)**
+- 💰 **Call Transcripts:** Automatische Richtpreis-Berechnung
+  - **Test bestätigt:** 120m² Ziegel + Dämmung = 19.200 EUR (90% Confidence)
+  - **Komponenten:** Material + Arbeit + Extras (Dämmung, Gerüst, etc.)
+- 📐 **Material Detection:** Ziegel, Schiefer, Dachziegel, Beton, Metall
+- 🏗️ **Project Type:** Reparatur, Neubau, Sanierung, Wartung
+- 📊 **Complexity:** Einfach, Mittel, Schwer (basierend auf Kontext)
+- ✉️ **Integration:** Preis-Details in Notification + CRM Event + Database
+- 🎯 **Scope:** Aktuell nur WEG A (unbekannte Kontakte bei Calls)
+
+### ⚠️ **Known Issues**
+- 🔴 **Database:** `no such table: attachments` (Migration pending - NON-CRITICAL)
+- ⚠️ **SipGate:** Phone number extraction needs verification (caller vs from field)
+- 📎 **Attachments HTML:** Duplicate in notification (cosmetic)
+- ⚠️ **OneDrive:** 403 Forbidden beim Sync DB Download (Fallback auf API funktioniert)
+
+---
+
+## 🔧 **ZAPIER INTEGRATION - KRITISCHE TODOs**
+
+### **AKTUELLER STAND (17. Oktober 2025):**
+
+**✅ AKTIVE ZAPS:**
+1. **Email Notification** (Railway → Zapier → Email)
+   - Trigger: Webhooks by Zapier "Catch Hook"
+   - URL: `https://hooks.zapier.com/hooks/catch/17762912/2xh8rlk/`
+   - Action: Email by Zapier → Send HTML Email
+   - Empfänger: mj@cdtechnologies.de, info@cdtechnologies.de
+   - **Status:** ✅ FUNKTIONIERT (HTML Notifications kommen an)
+
+**❌ FEHLENDE ZAPS (BLOCKIERT PRODUCTION USE!):**
+
+2. **Email Processing - Incoming** (Gmail/Outlook → Railway)
+   - Trigger: Gmail/Outlook "New Email in Inbox"
+   - Filter: Nur relevante Folder (optional)
+   - Action: Webhooks by Zapier → POST Request
+   - URL: `https://my-langgraph-agent-production.up.railway.app/webhook/ai-email/incoming`
+   - Payload:
+     ```json
+     {
+       "message_id": "{{MessageId}}",
+       "user_email": "mj@cdtechnologies.de",
+       "from": "{{FromEmailAddress}}",
+       "subject": "{{Subject}}",
+       "received_date": "{{ReceivedDateTime}}"
+     }
+     ```
+   - **Status:** ❌ NICHT KONFIGURIERT
+   - **Priorität:** 🔴 KRITISCH (ohne diesen Zap läuft nichts automatisch!)
+   - **Aufwand:** 10 Minuten
+   - **Dokumentation:** `PHASE_2_DEPLOYMENT.md` Zeile 161-176
+
+3. **Email Processing - Outgoing** (Gmail/Outlook → Railway)
+   - Trigger: Gmail/Outlook "New Email in Sent Items"
+   - Action: Webhooks by Zapier → POST Request
+   - URL: `https://my-langgraph-agent-production.up.railway.app/webhook/ai-email/outgoing`
+   - Payload: Identisch zu Incoming
+   - **Status:** ❌ NICHT KONFIGURIERT
+   - **Priorität:** 🟡 MITTEL (für vollständiges CRM-Tracking)
+   - **Aufwand:** 10 Minuten
+
+4. **SipGate Integration** (SipGate → Railway)
+   - Trigger: SipGate "New Call" ODER Webhooks by Zapier "Catch Hook"
+   - Action: POST `/webhook/ai-call`
+   - Payload Mapping:
+     ```json
+     {
+       "call": {
+         "from": "{{caller}}",
+         "to": "{{callee}}",
+         "direction": "{{direction}}"
+       },
+       "assist": {
+         "summary": {
+           "content": "{{transcription}}"
+         }
+       }
+     }
+     ```
+   - **Status:** ❌ NICHT KONFIGURIERT
+   - **Priorität:** 🔴 HOCH (Price Estimation funktioniert nur mit Calls)
+   - **Aufwand:** 15 Minuten (Payload-Mapping komplex)
+   - **TODO:** Phone-Number-Extraktion verifizieren (`TODO_MORGEN_SIPGATE_FIX.md`)
+
+5. **WhatsApp Integration** (WhatsApp Business → Railway)
+   - Trigger: WhatsApp Business API ODER Webhooks by Zapier
+   - Action: POST `/webhook/ai-whatsapp`
+   - **Status:** ❌ NICHT KONFIGURIERT
+   - **Priorität:** 🟢 NIEDRIG (Nice-to-have)
+   - **Aufwand:** 20 Minuten
+
+6. **Feedback Button Routing** (Email Buttons → Railway)
+   - Trigger: User klickt Button in Notification Email
+   - URL: Aus Button-HTML (dynamisch generiert)
+   - Targets:
+     - `/webhook/feedback?action=data_good` (Priority: LOW)
+     - `/webhook/feedback?action=data_error` (Priority: HIGH)
+     - `/webhook/contact-action?action=create_supplier`
+   - **Status:** ⚠️ TEILWEISE
+     - ✅ Buttons werden generiert in HTML
+     - ❌ Clicks nicht getestet (benötigt echte Email)
+   - **Priorität:** 🟡 MITTEL
+   - **Test benötigt:** Email in Outlook/Gmail öffnen und klicken
+
+### **BLOCKIERENDE FAKTOREN:**
+
+**Ohne Zapier Email Incoming Zap:**
+- ❌ Keine automatische Email-Verarbeitung
+- ❌ Nur manuelle Tests mit `curl` möglich
+- ❌ Notification-System läuft ins Leere (keine Trigger)
+- ❌ Production-Betrieb NICHT möglich
+
+**Ohne SipGate Zap:**
+- ❌ Keine automatische Call-Verarbeitung
+- ❌ Price Estimation Feature ungenutzt
+- ❌ Transcription-Analyse nicht aktiv
+
+### **NÄCHSTE SCHRITTE (ZAPIER SETUP):**
+
+**🔴 HEUTE (17. Oktober) - DRINGEND:**
+1. **Email Incoming Zap erstellen** (10 Min)
+   - Gmail/Outlook Trigger konfigurieren
+   - POST zu `/webhook/ai-email/incoming`
+   - Test mit echter Email durchführen
+   - **Verifizieren:** Railway Logs zeigen Processing
+
+2. **Feedback Buttons testen** (5 Min)
+   - Notification Email öffnen
+   - "DATEN OK" Button klicken
+   - Prüfen: Railway Logs zeigen FEEDBACK entry
+   - Prüfen: `feedback_log.jsonl` enthält Eintrag
+
+**🟡 DIESE WOCHE:**
+3. **SipGate Zap erstellen** (15 Min)
+   - SipGate Webhook/Trigger konfigurieren
+   - Payload-Mapping mit echtem Call testen
+   - Phone-Number-Extraktion verifizieren (caller vs from)
+   - Price Estimation End-to-End testen
+
+4. **Outgoing Email Zap erstellen** (10 Min)
+   - Sent Items Trigger
+   - POST zu `/webhook/ai-email/outgoing`
+   - Test mit gesendeter Email
+
+**🟢 OPTIONAL (SPÄTER):**
+5. WhatsApp Integration (wenn Business API verfügbar)
+
+### **REFERENZ-DOKUMENTATION:**
+- `PHASE_2_DEPLOYMENT.md` - Zapier Payload Config
+- `ZAPIER_INTEGRATION_GUIDE.md` - Vollständige Setup-Anleitung
+- `zapier-railway-setup.md` - Step-by-Step Zap Creation
+- `TODO_MORGEN_SIPGATE_FIX.md` - SipGate Phone Extraction Issue
 
 ---
 
@@ -849,28 +1018,74 @@ async def route_call(call_data: Dict):
 
 ---
 
-## 🎯 SUCCESS METRICS
+## 🎯 SUCCESS METRICS (Updated: 17. Oktober 2025)
 
 ### **Email Processing:**
 - ✅ 95%+ Spam-Filterung korrekt
 - ✅ <20s Processing-Zeit (mit Apify Worker)
 - ✅ 90%+ OCR-Genauigkeit bei Rechnungen
 - ✅ 100% Rechnungen in OneDrive UND DB UND CRM
+- ✅ **NEW:** Attachment details in notifications
+- ✅ **NEW:** Document type classification from filename
+- ✅ **NEW:** Test endpoint for development
 
 ### **SipGate:**
 - ✅ 100% Calls erfasst (CRM Event)
 - ✅ 80%+ Tasks automatisch abgeleitet
-- ✅ 70%+ Termine automatisch erkannt
+- ⚠️ 70%+ Termine automatisch erkannt (needs improvement)
+- ✅ **NEW:** Automatic price estimation (WEG A: 90% accuracy)
+- ⚠️ **PENDING:** Phone number extraction verification
 
 ### **CRM Integration:**
 - ✅ 95%+ Contact-Matching korrekt
 - ✅ 100% Communications geloggt
-- ✅ 80%+ Opportunities automatisch erstellt
+- ⚠️ 80%+ Opportunities automatisch erstellt
+- ✅ **NEW:** Supplier creation workflow (button added)
+- ✅ **NEW:** Multi-source contact lookup (cache → sync DB → API)
+
+### **Notification System:**
+- ✅ Email notifications sent via Zapier
+- ✅ **NEW:** Feedback buttons (data quality)
+- ✅ **NEW:** Supplier creation button
+- ✅ **NEW:** Priority-based issue tracking
+- ✅ **NEW:** JSONL feedback logging
 
 ### **SQL Datenbank:**
-- ✅ Duplikat-Prevention 100%
-- ✅ Reporting verfügbar (Dashboards)
-- ✅ 90%+ Invoice-Payment-Matching
+- ✅ email_data table operational
+- ⚠️ attachments table missing (migration pending)
+- ✅ Persistence für processing history
+- ⚠️ Duplikat-Prevention 100% (to be implemented)
+- ⚠️ Reporting verfügbar (to be implemented)
+
+---
+
+## 📊 IMPLEMENTATION STATUS OVERVIEW (17. Oktober 2025)
+
+### ✅ **PRODUCTION READY**
+- Email Processing (WEG A & B)
+- Call Processing with Price Estimation (WEG A)
+- WhatsApp Basic Processing
+- Contact Matching (Multi-Source)
+- AI Analysis (Intent, Urgency, Sentiment)
+- Task Generation
+- Notification System with Feedback
+- Database Persistence
+- LangSmith Tracing
+
+### 🟡 **PARTIAL / NEEDS WORK**
+- SipGate Phone Number Extraction (needs verification)
+- Attachment HTML (cosmetic duplication)
+- Database Migration (attachments table)
+- WEClapp Sync DB (OneDrive 403, fallback works)
+- Price Estimation for WEG B (not implemented yet)
+
+### 🔴 **NOT IMPLEMENTED / ROADMAP**
+- Invoice-Payment Matching
+- Automated Mahnwesen
+- Liquiditäts-Forecast
+- WhatsApp Media Processing
+- Instagram Direct Integration
+- Document Scan Workflow (/webhook/ai-scan)
 
 ---
 

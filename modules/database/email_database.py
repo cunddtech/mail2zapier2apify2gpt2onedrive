@@ -54,8 +54,17 @@ def initialize_database():
         ocr_text TEXT,
         ocr_structured_data TEXT,
         processing_timestamp TEXT,
-        FOREIGN KEY (email_id) REFERENCES email_data (id)
+        document_hash TEXT,
+        onedrive_path TEXT,
+        duplicate_of INTEGER,
+        FOREIGN KEY (email_id) REFERENCES email_data (id),
+        FOREIGN KEY (duplicate_of) REFERENCES attachments (id)
     )
+    """)
+    
+    # Create index for fast duplicate lookups
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_document_hash ON attachments(document_hash)
     """)
 
     conn.commit()

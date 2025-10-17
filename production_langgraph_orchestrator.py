@@ -68,6 +68,16 @@ from modules.pricing.estimate_from_call import (
     ProjectEstimate
 )
 
+# 📂 Apify Module Imports - Ordnerstruktur & Dokumenten-Klassifikation
+from modules.filegen.folder_logic import generate_folder_and_filenames
+from modules.gpt.classify_document_with_gpt import classify_document_with_gpt
+
+# 🗄️ Email Tracking Database - Duplikatprüfung
+from modules.database.email_tracking_db import get_email_tracking_db, EmailTrackingDB
+
+# ☁️ OneDrive Upload
+from modules.upload.upload_file_to_onedrive import upload_file_to_onedrive
+
 # INLINE Graph API Functions (Railway deployment workaround)
 async def get_graph_token_mail():
     """Holt das Zugriffstoken von Microsoft Graph für Mail."""
@@ -257,14 +267,21 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
             description = option.get("description", "")
             color_class = {
                 "create_contact": "btn-create",
+                "create_supplier": "btn-supplier",
                 "add_to_existing": "btn-primary",
                 "mark_private": "btn-private",
                 "mark_spam": "btn-spam",
                 "request_info": "btn-info",
+                "data_good": "btn-success",
+                "data_error": "btn-warning",
                 "report_issue": "btn-secondary"
             }.get(action, "btn-default")
             
-            button_url = f"{webhook_url}?action={action}&sender={sender}&email_id={email_id}"
+            # Route feedback actions to /webhook/feedback, others to /webhook/contact-action
+            if action in ["data_good", "data_error", "report_issue"]:
+                button_url = f"https://my-langgraph-agent-production.up.railway.app/webhook/feedback?action={action}&sender={sender}&email_id={email_id}"
+            else:
+                button_url = f"{webhook_url}?action={action}&sender={sender}&email_id={email_id}"
             
             buttons_html += f"""
             <a href="{button_url}" class="button {color_class}">{label}</a>
@@ -290,6 +307,8 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
     .button {{ display: inline-block; padding: 14px 28px; margin: 8px 5px; text-decoration: none; border-radius: 25px; font-weight: bold; text-align: center; transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }}
     .btn-create {{ background: linear-gradient(135deg, #52C234 0%, #47A025 100%); color: white; }}
     .btn-create:hover {{ box-shadow: 0 6px 16px rgba(82,194,52,0.4); transform: translateY(-2px); }}
+    .btn-supplier {{ background: linear-gradient(135deg, #FD79A8 0%, #E84393 100%); color: white; }}
+    .btn-supplier:hover {{ box-shadow: 0 6px 16px rgba(253,121,168,0.4); transform: translateY(-2px); }}
     .btn-primary {{ background: linear-gradient(135deg, #3498DB 0%, #2980B9 100%); color: white; }}
     .btn-primary:hover {{ box-shadow: 0 6px 16px rgba(52,152,219,0.4); transform: translateY(-2px); }}
     .btn-private {{ background: linear-gradient(135deg, #A29BFE 0%, #6C5CE7 100%); color: white; }}
@@ -298,6 +317,10 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
     .btn-spam:hover {{ box-shadow: 0 6px 16px rgba(255,118,117,0.4); transform: translateY(-2px); }}
     .btn-info {{ background: linear-gradient(135deg, #74B9FF 0%, #0984E3 100%); color: white; }}
     .btn-info:hover {{ box-shadow: 0 6px 16px rgba(116,185,255,0.4); transform: translateY(-2px); }}
+    .btn-success {{ background: linear-gradient(135deg, #00D2A0 0%, #00B894 100%); color: white; }}
+    .btn-success:hover {{ box-shadow: 0 6px 16px rgba(0,210,160,0.4); transform: translateY(-2px); }}
+    .btn-warning {{ background: linear-gradient(135deg, #FDCB6E 0%, #E17055 100%); color: white; }}
+    .btn-warning:hover {{ box-shadow: 0 6px 16px rgba(253,203,110,0.4); transform: translateY(-2px); }}
     .btn-secondary {{ background: linear-gradient(135deg, #FFEAA7 0%, #FDCB6E 100%); color: #2C3E50; }}
     .btn-secondary:hover {{ box-shadow: 0 6px 16px rgba(255,234,167,0.4); transform: translateY(-2px); }}
     .ai-analysis {{ background: linear-gradient(135deg, #DFE6E9 0%, #B2BEC3 100%); padding: 20px; border-radius: 10px; margin: 20px 0; border-left: 5px solid #74B9FF; }}
@@ -376,10 +399,15 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
             
             color_class = {
                 "view_in_crm": "btn-info",
+                "data_good": "btn-success",
+                "data_error": "btn-warning",
                 "report_issue": "btn-secondary"
             }.get(action, "btn-default")
             
-            if url:
+            # Route feedback actions to /webhook/feedback
+            if action in ["data_good", "data_error", "report_issue"]:
+                button_url = f"https://my-langgraph-agent-production.up.railway.app/webhook/feedback?action={action}&contact_id={contact_id}&from={from_contact}"
+            elif url:
                 button_url = url
             else:
                 button_url = f"https://my-langgraph-agent-production.up.railway.app/webhook/feedback?type=wrong_match&contact_id={contact_id}&from={from_contact}"
@@ -408,6 +436,10 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
     .button {{ display: inline-block; padding: 14px 28px; margin: 8px 5px; text-decoration: none; border-radius: 25px; font-weight: bold; text-align: center; transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }}
     .btn-info {{ background: linear-gradient(135deg, #74B9FF 0%, #0984E3 100%); color: white; }}
     .btn-info:hover {{ box-shadow: 0 6px 16px rgba(116,185,255,0.4); transform: translateY(-2px); }}
+    .btn-success {{ background: linear-gradient(135deg, #00D2A0 0%, #00B894 100%); color: white; }}
+    .btn-success:hover {{ box-shadow: 0 6px 16px rgba(0,210,160,0.4); transform: translateY(-2px); }}
+    .btn-warning {{ background: linear-gradient(135deg, #FDCB6E 0%, #E17055 100%); color: white; }}
+    .btn-warning:hover {{ box-shadow: 0 6px 16px rgba(253,203,110,0.4); transform: translateY(-2px); }}
     .btn-secondary {{ background: linear-gradient(135deg, #FFEAA7 0%, #FDCB6E 100%); color: #2C3E50; }}
     .btn-secondary:hover {{ box-shadow: 0 6px 16px rgba(255,234,167,0.4); transform: translateY(-2px); }}
     .ai-analysis {{ background: linear-gradient(135deg, #DFE6E9 0%, #B2BEC3 100%); padding: 20px; border-radius: 10px; margin: 20px 0; border-left: 5px solid #74B9FF; }}
@@ -485,12 +517,17 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
                     "existing_contact": match.get("contact_name")
                 })
         
-        # Standard actions (always include "add to existing")
+        # Standard actions (always include "add to existing" and "create supplier")
         action_options.extend([
             {
                 "action": "create_contact",
                 "label": "✅ KONTAKT ANLEGEN",
                 "description": "Als neuen Kontakt in WeClapp anlegen"
+            },
+            {
+                "action": "create_supplier",
+                "label": "🏭 LIEFERANT ANLEGEN",
+                "description": "Als neuen Lieferanten in WeClapp anlegen"
             },
             {
                 "action": "add_to_existing",
@@ -512,6 +549,18 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
                 "action": "request_info",
                 "label": "📨 INFO ANFORDERN",
                 "description": "Mehr Informationen vom Absender anfordern"
+            },
+            {
+                "action": "data_good",
+                "label": "✅ DATEN OK",
+                "description": "Alle Daten korrekt ausgewertet, keine Fehler",
+                "color": "success"
+            },
+            {
+                "action": "data_error",
+                "label": "⚠️ FEHLER MELDEN",
+                "description": "Daten falsch erkannt oder Verarbeitungsfehler",
+                "color": "warning"
             },
             {
                 "action": "report_issue",
@@ -609,6 +658,18 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
                 "description": f"Kontakt in WeClapp öffnen",
                 "contact_id": contact_match.get("contact_id"),
                 "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
+            },
+            {
+                "action": "data_good",
+                "label": "✅ DATEN OK",
+                "description": "Alle Daten korrekt ausgewertet und zugeordnet",
+                "color": "success"
+            },
+            {
+                "action": "data_error",
+                "label": "⚠️ FEHLER MELDEN",
+                "description": "Daten falsch erkannt, Zuordnung inkorrekt oder Verarbeitungsfehler",
+                "color": "warning"
             },
             {
                 "action": "report_issue",
@@ -872,6 +933,260 @@ def _sync_cache_contact(email: str, weclapp_data: Dict[str, Any]):
     conn.close()
     logger.info(f"✅ Cached in email_data.db: {email} → {weclapp_data.get('weclapp_contact_id')}")
 
+
+# ===============================
+# DUPLIKATSPRÜFUNG & DOKUMENT-TRACKING
+# ===============================
+
+async def check_document_duplicate(
+    message_id: str = None,
+    sender: str = None,
+    subject: str = None,
+    attachment_filename: str = None,
+    document_hash: str = None,
+    onedrive_path: str = None
+) -> Dict[str, Any]:
+    """
+    🔍 Prüft ob Dokument bereits verarbeitet wurde
+    
+    Prüfkriterien (in Reihenfolge):
+    1. message_id (Microsoft Graph ID) - 100% sicher
+    2. document_hash (SHA256 des PDF) - sehr sicher
+    3. onedrive_path - wenn bereits hochgeladen
+    4. sender + subject + filename + zeitfenster (24h) - heuristisch
+    
+    Returns:
+        {
+            "is_duplicate": bool,
+            "duplicate_reason": str,
+            "original_record_id": int,
+            "original_timestamp": str,
+            "onedrive_link": str
+        }
+    """
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None, 
+            _check_duplicate_sync,
+            message_id, sender, subject, attachment_filename, document_hash, onedrive_path
+        )
+        
+        if result["is_duplicate"]:
+            logger.warning(f"⚠️ DUPLICATE: {result['duplicate_reason']}")
+        else:
+            logger.info(f"✅ No duplicate found - proceeding with processing")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"❌ Duplicate check error: {e}")
+        # Bei Fehler: Kein Duplikat annehmen (lieber verarbeiten)
+        return {"is_duplicate": False, "error": str(e)}
+
+
+def _check_duplicate_sync(
+    message_id: str,
+    sender: str,
+    subject: str,
+    attachment_filename: str,
+    document_hash: str,
+    onedrive_path: str
+) -> Dict[str, Any]:
+    """Synchronous duplicate check (runs in executor)"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        # PRÜFUNG 1: message_id (100% sicher - Microsoft Graph ID)
+        if message_id:
+            cursor.execute("""
+            SELECT id, processing_timestamp, onedrive_link
+            FROM processed_documents
+            WHERE message_id = ?
+            LIMIT 1
+            """, (message_id,))
+            
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "is_duplicate": True,
+                    "duplicate_reason": "message_id_match",
+                    "original_record_id": row[0],
+                    "original_timestamp": row[1],
+                    "onedrive_link": row[2]
+                }
+        
+        # PRÜFUNG 2: document_hash (sehr sicher - SHA256 des PDFs)
+        if document_hash:
+            cursor.execute("""
+            SELECT id, processing_timestamp, onedrive_link
+            FROM processed_documents
+            WHERE document_hash = ?
+            LIMIT 1
+            """, (document_hash,))
+            
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "is_duplicate": True,
+                    "duplicate_reason": "document_hash_match",
+                    "original_record_id": row[0],
+                    "original_timestamp": row[1],
+                    "onedrive_link": row[2]
+                }
+        
+        # PRÜFUNG 3: onedrive_path (wenn bereits hochgeladen)
+        if onedrive_path:
+            cursor.execute("""
+            SELECT id, processing_timestamp, onedrive_link
+            FROM processed_documents
+            WHERE onedrive_path = ?
+            LIMIT 1
+            """, (onedrive_path,))
+            
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "is_duplicate": True,
+                    "duplicate_reason": "onedrive_path_match",
+                    "original_record_id": row[0],
+                    "original_timestamp": row[1],
+                    "onedrive_link": row[2]
+                }
+        
+        # PRÜFUNG 4: Heuristisch (sender + subject + filename + 24h)
+        if sender and subject and attachment_filename:
+            # Zeitfenster: 24 Stunden
+            time_24h_ago = (datetime.now(BERLIN_TZ) - timedelta(hours=24)).isoformat()
+            
+            cursor.execute("""
+            SELECT id, processing_timestamp, onedrive_link
+            FROM processed_documents
+            WHERE sender = ?
+              AND subject = ?
+              AND attachment_filename = ?
+              AND processing_timestamp > ?
+            LIMIT 1
+            """, (sender, subject, attachment_filename, time_24h_ago))
+            
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "is_duplicate": True,
+                    "duplicate_reason": "heuristic_match_24h",
+                    "original_record_id": row[0],
+                    "original_timestamp": row[1],
+                    "onedrive_link": row[2]
+                }
+        
+        # KEIN DUPLIKAT GEFUNDEN
+        return {"is_duplicate": False}
+        
+    finally:
+        conn.close()
+
+
+def _save_processed_document_sync(
+    message_id: str,
+    sender: str,
+    subject: str,
+    attachment_filename: str,
+    document_hash: str,
+    document_type: str,
+    onedrive_path: str,
+    onedrive_link: str,
+    ordnerstruktur: str,
+    kunde: str,
+    lieferant: str,
+    summe: str
+) -> int:
+    """
+    💾 Speichert verarbeitetes Dokument in processed_documents Tabelle
+    
+    Returns: record_id
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        # Tabelle erstellen falls nicht vorhanden
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS processed_documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message_id TEXT UNIQUE,
+            sender TEXT,
+            subject TEXT,
+            attachment_filename TEXT,
+            document_hash TEXT UNIQUE,
+            document_type TEXT,
+            onedrive_path TEXT UNIQUE,
+            onedrive_link TEXT,
+            ordnerstruktur TEXT,
+            kunde TEXT,
+            lieferant TEXT,
+            summe TEXT,
+            processing_timestamp TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+        
+        # CREATE INDEX wenn nicht vorhanden
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_message_id ON processed_documents(message_id)
+        """)
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_document_hash ON processed_documents(document_hash)
+        """)
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_onedrive_path ON processed_documents(onedrive_path)
+        """)
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_sender_subject_filename ON processed_documents(sender, subject, attachment_filename)
+        """)
+        
+        # INSERT
+        cursor.execute("""
+        INSERT INTO processed_documents (
+            message_id, sender, subject, attachment_filename, document_hash,
+            document_type, onedrive_path, onedrive_link, ordnerstruktur,
+            kunde, lieferant, summe, processing_timestamp
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            message_id, sender, subject, attachment_filename, document_hash,
+            document_type, onedrive_path, onedrive_link, ordnerstruktur,
+            kunde, lieferant, summe, now_berlin().isoformat()
+        ))
+        
+        record_id = cursor.lastrowid
+        conn.commit()
+        
+        logger.info(f"✅ Saved processed document: ID={record_id}, Type={document_type}, Path={onedrive_path}")
+        return record_id
+        
+    except sqlite3.IntegrityError as e:
+        # UNIQUE constraint violation - ist ein Duplikat!
+        logger.warning(f"⚠️ Document already exists in DB: {e}")
+        conn.rollback()
+        
+        # Hole existing record
+        if message_id:
+            cursor.execute("SELECT id FROM processed_documents WHERE message_id = ?", (message_id,))
+        elif document_hash:
+            cursor.execute("SELECT id FROM processed_documents WHERE document_hash = ?", (document_hash,))
+        else:
+            cursor.execute("SELECT id FROM processed_documents WHERE onedrive_path = ?", (onedrive_path,))
+        
+        row = cursor.fetchone()
+        return row[0] if row else None
+        
+    except Exception as e:
+        logger.error(f"❌ Error saving processed document: {e}")
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
 # ===============================
 # LANGRAPH STATE DEFINITIONS
 # ===============================
@@ -892,6 +1207,7 @@ class CommunicationState(TypedDict):
     workflow_path: Optional[str]  # "WEG_A" or "WEG_B"
     tasks_generated: List[Dict[str, Any]]
     crm_updates: List[Dict[str, Any]]
+    price_estimate: Optional[Dict[str, Any]]  # 💰 NEW: Automatic price estimation from calls
     
     # Final Output
     processing_complete: bool
@@ -1268,6 +1584,23 @@ class ProductionAIOrchestrator:
         
         logger.info("✅ Production AI Orchestrator initialized with LangGraph")
     
+    def _map_dokumenttyp_to_intent(self, dokumenttyp: str) -> str:
+        """Map Apify dokumenttyp to Railway intent"""
+        mapping = {
+            "rechnung": "sales",
+            "eingangsrechnung": "sales",
+            "ausgangsrechnung": "sales",
+            "angebot": "sales",
+            "auftragsbestätigung": "sales",
+            "lieferschein": "sales",
+            "aufmaß": "sales",
+            "anfrage": "information",
+            "reklamation": "complaint",
+            "behördlich": "information",
+            "sonstiges": "information"
+        }
+        return mapping.get(dokumenttyp.lower(), "information")
+    
     def _build_langgraph_workflow(self) -> StateGraph:
         """Builds the main LangGraph workflow"""
         
@@ -1367,6 +1700,43 @@ class ProductionAIOrchestrator:
         
         return state
     
+    async def _classify_document_async(
+        self, 
+        ocr_text: str, 
+        handwriting_text: str = "", 
+        metadata: dict = None
+    ) -> dict:
+        """
+        🤖 ASYNC WRAPPER für classify_document_with_gpt()
+        
+        Verwendet die modulare classify_document_with_gpt() Funktion,
+        aber macht sie async-kompatibel für den LangGraph Orchestrator.
+        
+        Args:
+            ocr_text: Extrahierter OCR-Text
+            handwriting_text: Optional handschriftlicher Text
+            metadata: Zusätzliche Metadaten (subject, from, etc.)
+        
+        Returns:
+            GPT-Analyse-Ergebnis (Apify JSON Format)
+        """
+        import asyncio
+        
+        logger.info("🤖 Using modular classify_document_with_gpt()...")
+        
+        # Run sync function in executor (thread pool) to make it async
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,  # Use default executor
+            classify_document_with_gpt,
+            ocr_text,
+            handwriting_text,
+            metadata or {}
+        )
+        
+        logger.info(f"✅ classify_document_with_gpt() completed: {result.get('dokumenttyp', 'N/A')}")
+        return result
+    
     async def _ai_analysis_node(self, state: CommunicationState) -> CommunicationState:
         """LangGraph Node: AI Analysis of Communication"""
         
@@ -1377,63 +1747,105 @@ class ProductionAIOrchestrator:
             additional_data = state.get("additional_data", {})
             email_direction = additional_data.get("email_direction", "incoming")
             subject = additional_data.get("subject", "")
+            body = additional_data.get("body", "")
             attachments = additional_data.get("attachments", [])
             attachment_names = [att.get("name", "") for att in attachments] if attachments else []
+            attachment_results = additional_data.get("attachment_results", [])
+            document_type_hint = additional_data.get("document_type_hint")
             
-            # AI Analysis Prompt with Document Type Classification
-            analysis_prompt = ChatPromptTemplate.from_messages([
-                ("system", """Du bist ein AI Communication Analyst für ein deutsches Unternehmen.
+            # 🎯 USE APIFY PROMPTS - Much better document classification!
+            if attachment_results and len(attachment_results) > 0:
+                # ✅ EMAIL WITH PDF ATTACHMENTS → analyse_scan_prompt (200 lines!)
+                logger.info(f"📄 Using modular classify_document_with_gpt() for {len(attachment_results)} attachment(s)")
                 
-Analysiere die eingehende Kommunikation und erstelle eine JSON-Antwort mit:
-
-{{
-    "intent": "support|sales|information|complaint|follow_up",
-    "urgency": "low|medium|high|urgent", 
-    "sentiment": "positive|neutral|negative",
-    "document_type": "invoice|offer|order_confirmation|delivery_note|general",
-    "has_pricing": true,
-    "key_topics": ["thema1", "thema2"],
-    "suggested_tasks": [
-        {{
-            "title": "Aufgaben-Titel",
-            "type": "follow_up|quote|support|meeting|payment|delivery",
-            "priority": "low|medium|high|urgent",
-            "due_hours": 24
-        }}
-    ],
-    "response_needed": true,
-    "summary": "Kurze deutsche Zusammenfassung"
-}}
-
-**DOKUMENTTYP-KLASSIFIKATION:**
-- "invoice": Rechnung, Zahlungsaufforderung, RE:, Invoice (mit/ohne Anhang)
-- "offer": Angebot, Quote, Preisanfrage, Richtpreis (mit/ohne Anhang)
-- "order_confirmation": Auftragsbestätigung, AB:, Order Confirmation
-- "delivery_note": Aufmaß, Lieferschein, Delivery Note, Measurement
-- "general": Allgemeine Anfrage, Info-Request, Support
-
-Antworte nur mit dem JSON, keine zusätzlichen Texte."""),
-                ("user", f"""Kommunikation analysieren:
+                # Combine OCR text from all attachments
+                ocr_text = "\n\n=== NÄCHSTES DOKUMENT ===\n\n".join([
+                    att.get("ocr_text", "") for att in attachment_results if att.get("ocr_text")
+                ])
                 
-Art: {state['message_type']}
-Richtung: {email_direction}
-Von: {state['from_contact']}
-Betreff: {subject}
-Anhänge: {len(attachment_names)} ({', '.join(attachment_names[:3])})
-Inhalt: {state['content'][:1000]}
-Zeit: {state['timestamp']}
-
-Bekannter Kontakt: {state.get('contact_match', {}).get('found', False)}
-""")
-            ])
+                # Combine handwriting text (if any)
+                handwriting_text = "\n\n".join([
+                    att.get("handwriting_text", "") for att in attachment_results if att.get("handwriting_text")
+                ])
+                
+                # Metadata for classification
+                metadata = {
+                    "subject": subject,
+                    "from": state['from_contact'],
+                    "email_direction": email_direction,
+                    "attachments_count": len(attachment_results),
+                    "document_type_hint": document_type_hint,
+                    "attachment_filenames": [att.get("filename", "") for att in attachment_results]
+                }
+                
+                # 🤖 USE MODULAR FUNCTION (instead of inline LLM call)
+                apify_result = await self._classify_document_async(
+                    ocr_text=ocr_text,
+                    handwriting_text=handwriting_text,
+                    metadata=metadata
+                )
+                
+            else:
+                # ✅ EMAIL WITHOUT ATTACHMENTS → analyse_mail_prompt
+                logger.info(f"📧 Using modular classify_document_with_gpt() for text-only email")
+                
+                # For text-only emails, we still use classify_document_with_gpt
+                # but pass email body as "ocr_text"
+                metadata = {
+                    "subject": subject,
+                    "from": state['from_contact'],
+                    "email_direction": email_direction,
+                    "document_type_hint": document_type_hint,
+                    "is_text_only_email": True
+                }
+                
+                # 🤖 USE MODULAR FUNCTION
+                apify_result = await self._classify_document_async(
+                    ocr_text=body or state['content'],
+                    handwriting_text="",
+                    metadata=metadata
+                )
             
-            # Execute AI Analysis
-            response = await self.llm.ainvoke(analysis_prompt.format_messages())
-            ai_result = self.json_parser.parse(response.content)
+            # apify_result already contains parsed JSON from classify_document_with_gpt()
+            # No need for manual parsing - the modular function handles it!
+            
+            # 🔄 MAP APIFY FIELDS → RAILWAY FORMAT
+            # Apify prompts return: dokumenttyp, richtung, rolle, kunde, lieferant, projektnummer, ordnerstruktur, etc.
+            # Railway expects: intent, urgency, sentiment, document_type, suggested_tasks, etc.
+            
+            ai_result = {
+                # Core fields from Apify
+                "dokumenttyp": apify_result.get("dokumenttyp", "general"),
+                "richtung": apify_result.get("richtung", "eingang"),
+                "rolle": apify_result.get("rolle", "kunde"),
+                "kunde": apify_result.get("kunde", "Unbekannt"),
+                "lieferant": apify_result.get("lieferant", "Unbekannt"),
+                "projektnummer": apify_result.get("projektnummer", ""),
+                "ordnerstruktur": apify_result.get("ordnerstruktur", ""),
+                "dateiname": apify_result.get("dateiname", ""),
+                "summe": apify_result.get("summe", ""),
+                "datum_dokument": apify_result.get("datum_dokument", ""),
+                "notizen": apify_result.get("notizen", ""),
+                "zu_pruefen": apify_result.get("zu_pruefen", False),
+                
+                # Map to Railway format
+                "document_type": apify_result.get("dokumenttyp", "general"),
+                "intent": self._map_dokumenttyp_to_intent(apify_result.get("dokumenttyp", "")),
+                "urgency": "high" if apify_result.get("dringend") else "medium",
+                "sentiment": "neutral",  # Apify doesn't provide sentiment
+                "summary": apify_result.get("notizen", apify_result.get("anliegen", "")),
+                "has_pricing": bool(apify_result.get("summe")),
+                "key_topics": [apify_result.get("dokumenttyp", "")],
+                "suggested_tasks": [],  # Will be generated by workflow nodes
+                "response_needed": apify_result.get("zu_pruefen", False),
+                
+                # Full Apify response for later use
+                "_apify_full": apify_result
+            }
             
             state["ai_analysis"] = ai_result
             
-            logger.info(f"✅ AI Analysis complete: {ai_result.get('intent')} ({ai_result.get('urgency')})")
+            logger.info(f"✅ AI Analysis complete (Apify): {ai_result.get('dokumenttyp')} → {ai_result.get('ordnerstruktur', 'N/A')}")
             
         except Exception as e:
             logger.error(f"❌ AI Analysis error: {e}")
@@ -2306,7 +2718,7 @@ Antworten Sie mit den erforderlichen Kontakt-Details oder markieren Sie als "Pri
                         "sentiment": final_state.get("ai_analysis", {}).get("sentiment")
                     },
                     "pricing": {
-                        "attempted": message_type == "call" and content,
+                        "attempted": message_type == "call" and bool(content),
                         "calculated": final_state.get("price_estimate", {}).get("found", False) if final_state.get("price_estimate") else False,
                         "amount": final_state.get("price_estimate", {}).get("total_cost") if final_state.get("price_estimate") else None,
                         "confidence": final_state.get("price_estimate", {}).get("confidence") if final_state.get("price_estimate") else None
@@ -2450,6 +2862,7 @@ async def root():
             "/webhook/ai-email (deprecated - use /incoming or /outgoing)",
             "/webhook/ai-email/incoming",
             "/webhook/ai-email/outgoing",
+            "/webhook/ai-email/test (test with JSON attachments)",
             "/webhook/ai-call",
             "/webhook/frontdesk",
             "/webhook/feedback",
@@ -2461,10 +2874,117 @@ async def root():
             "Intelligent Attachment Processing",
             "Type-specific OCR Routes",
             "💰 Automatic Price Estimation from Call Transcripts (NEW)",
-            "Database Schema Migration Support (NEW)"
+            "Database Schema Migration Support (NEW)",
+            "🧪 Test Endpoint with JSON Attachments (NEW)"
         ],
         "timestamp": now_berlin().isoformat()
     }
+
+@app.post("/webhook/ai-email/test")
+async def process_email_test(request: Request):
+    """
+    🧪 TEST EMAIL PROCESSING WITH JSON ATTACHMENTS
+    
+    For testing purposes - accepts complete email data in JSON format
+    including attachments metadata (simulated, no actual file download)
+    
+    Expected payload:
+    {
+        "from": "sender@example.com",
+        "to": "recipient@example.com",
+        "subject": "Email Subject",
+        "body": "Email content...",
+        "attachments": [
+            {
+                "filename": "document.pdf",
+                "size": 145000,
+                "content_type": "application/pdf"
+            }
+        ],
+        "received_date": "2025-10-16T18:00:00+02:00"
+    }
+    """
+    
+    try:
+        data = await request.json()
+        logger.info(f"🧪 TEST: Processing email from {data.get('from', 'unknown')}")
+        
+        # Extract data
+        from_contact = data.get("from", "")
+        to_contact = data.get("to", "")
+        subject = data.get("subject", "")
+        body = data.get("body", "")
+        attachments_meta = data.get("attachments", [])
+        received_date = data.get("received_date", now_berlin().isoformat())
+        
+        # Simulate attachment results (since we can't actually download in test)
+        attachment_results = []
+        for att in attachments_meta:
+            filename = att.get("filename", "unknown.pdf")
+            size = att.get("size", 0)
+            content_type = att.get("content_type", "application/pdf")
+            
+            # Classify document type from filename
+            doc_type = "general"
+            if any(word in filename.lower() for word in ["rechnung", "invoice", "re-"]):
+                doc_type = "invoice"
+            elif any(word in filename.lower() for word in ["angebot", "offer", "quote"]):
+                doc_type = "offer"
+            elif any(word in filename.lower() for word in ["bestellung", "order", "po-"]):
+                doc_type = "order"
+            elif any(word in filename.lower() for word in ["liefer", "delivery", "dn-"]):
+                doc_type = "delivery_note"
+            
+            # Simulate OCR result (test placeholder)
+            attachment_results.append({
+                "filename": filename,
+                "size": size,
+                "content_type": content_type,
+                "document_type": doc_type,
+                "ocr_route": f"simulated_{doc_type}_ocr",
+                "ocr_text": f"[TEST: Simulated OCR for {filename} - Type: {doc_type}]",
+                "structured_data": {
+                    "test_mode": True,
+                    "document_type": doc_type
+                }
+            })
+        
+        logger.info(f"🧪 TEST: Simulated {len(attachment_results)} attachments")
+        
+        # Process via LangGraph with simulated attachments
+        result = await orchestrator.process_communication(
+            message_type="email",
+            from_contact=from_contact,
+            content=f"{subject}\n\n{body}",
+            additional_data={
+                "subject": subject,
+                "body": body,
+                "to": to_contact,
+                "received_date": received_date,
+                "attachments_count": len(attachment_results),
+                "has_attachments": len(attachment_results) > 0,
+                "attachment_results": attachment_results,
+                "test_mode": True
+            }
+        )
+        
+        logger.info(f"✅ TEST: Email processing complete: {result.get('workflow_path', 'unknown')}")
+        
+        return {
+            "status": "success",
+            "test_mode": True,
+            "ai_processing": result,
+            "simulated_attachments": len(attachment_results)
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ TEST: Email processing error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "error": str(e), "test_mode": True}
+        )
 
 @app.post("/webhook/ai-email")
 @app.post("/webhook/ai-email/incoming")
@@ -2479,7 +2999,9 @@ async def process_email_incoming(request: Request):
         "message_id": "AAMkAGE1...",  # Graph API Message ID
         "user_email": "mj@cdtechnologies.de",  # Mailbox to query
         "from": "sender@example.com",  # Optional metadata
-        "subject": "..."  # Optional metadata
+        "subject": "...",  # Optional metadata
+        "document_type_hint": "invoice",  # Optional: invoice|offer|order_confirmation|delivery_note|general
+        "priority": "high"  # Optional: low|medium|high|urgent
     }
     """
     
@@ -2489,10 +3011,18 @@ async def process_email_incoming(request: Request):
         message_id = data.get("message_id") or data.get("id")
         user_email = data.get("user_email") or data.get("mailbox") or data.get("recipient")
         
+        # 🎯 NEW: Extract document_type_hint from Zapier (Multi-Zap Strategy)
+        document_type_hint = data.get("document_type_hint")
+        priority = data.get("priority", "medium")
+        
         # ⚡ IMMEDIATE RESPONSE - No logging before response!
         # Fire-and-forget background task
         import asyncio
-        asyncio.create_task(process_email_background(data, message_id, user_email))
+        asyncio.create_task(process_email_background(
+            data, message_id, user_email, 
+            document_type_hint=document_type_hint,
+            priority=priority
+        ))
         
         # Return immediately (< 1 second)
         return JSONResponse(
@@ -2523,7 +3053,9 @@ async def process_email_outgoing(request: Request):
         "message_id": "AAMkAGE1...",  # Graph API Message ID
         "user_email": "mj@cdtechnologies.de",  # Mailbox to query
         "to": "recipient@example.com",  # Optional metadata
-        "subject": "..."  # Optional metadata
+        "subject": "...",  # Optional metadata
+        "document_type_hint": "invoice",  # Optional
+        "priority": "medium"  # Optional
     }
     """
     
@@ -2533,10 +3065,18 @@ async def process_email_outgoing(request: Request):
         message_id = data.get("message_id") or data.get("id")
         user_email = data.get("user_email") or data.get("mailbox") or data.get("sender")
         
+        # 🎯 NEW: Extract document_type_hint from Zapier
+        document_type_hint = data.get("document_type_hint")
+        priority = data.get("priority", "medium")
+        
         # ⚡ IMMEDIATE RESPONSE - No logging before response!
         # Fire-and-forget background task
         import asyncio
-        asyncio.create_task(process_email_background(data, message_id, user_email))
+        asyncio.create_task(process_email_background(
+            data, message_id, user_email,
+            document_type_hint=document_type_hint,
+            priority=priority
+        ))
         
         # Return immediately (< 1 second)
         return JSONResponse(
@@ -2560,12 +3100,13 @@ async def process_attachments_intelligent(
     message_id: str,
     user_email: str,
     access_token: str,
-    subject: str
+    subject: str,
+    document_type_hint: str = None  # 🎯 NEW: Accept hint from Zapier
 ) -> List[Dict]:
     """
     📎 INTELLIGENT ATTACHMENT PROCESSING
     
-    1. Classify document type from subject + filename
+    1. Classify document type from subject + filename (or use hint from Zapier)
     2. Download attachment bytes from Graph API
     3. Choose OCR route based on type:
        - invoice → PDF.co Invoice Parser
@@ -2580,20 +3121,25 @@ async def process_attachments_intelligent(
         import httpx
         import base64
         
-        # Classify expected document type from subject
-        subject_lower = subject.lower()
-        expected_type = "general"
-        
-        if any(word in subject_lower for word in ["rechnung", "invoice", "re:"]):
-            expected_type = "invoice"
-        elif any(word in subject_lower for word in ["angebot", "offer", "quote"]):
-            expected_type = "offer"
-        elif any(word in subject_lower for word in ["auftragsbestätigung", "ab:", "order"]):
-            expected_type = "order_confirmation"
-        elif any(word in subject_lower for word in ["aufmaß", "lieferschein", "delivery"]):
-            expected_type = "delivery_note"
-        
-        logger.info(f"📊 Expected document type from subject: {expected_type}")
+        # 🎯 PRIORITY 1: Use document_type_hint from Zapier (Multi-Zap Strategy)
+        if document_type_hint:
+            expected_type = document_type_hint
+            logger.info(f"🎯 FAST-PATH: Using document type hint from Zapier: {expected_type}")
+        else:
+            # FALLBACK: Classify expected document type from subject
+            subject_lower = subject.lower()
+            expected_type = "general"
+            
+            if any(word in subject_lower for word in ["rechnung", "invoice", "re:"]):
+                expected_type = "invoice"
+            elif any(word in subject_lower for word in ["angebot", "offer", "quote"]):
+                expected_type = "offer"
+            elif any(word in subject_lower for word in ["auftragsbestätigung", "ab:", "order"]):
+                expected_type = "order_confirmation"
+            elif any(word in subject_lower for word in ["aufmaß", "lieferschein", "delivery"]):
+                expected_type = "delivery_note"
+            
+            logger.info(f"📊 Expected document type from subject: {expected_type}")
         
         for attachment in attachments:
             try:
@@ -2622,6 +3168,11 @@ async def process_attachments_intelligent(
                         file_bytes = response.content
                         logger.info(f"✅ Downloaded {len(file_bytes)} bytes for {att_name}")
                         
+                        # 🔐 Calculate SHA256 hash for duplicate detection
+                        import hashlib
+                        document_hash = hashlib.sha256(file_bytes).hexdigest()
+                        logger.info(f"🔐 Document hash: {document_hash[:16]}...")
+                        
                         # Choose OCR route based on type
                         ocr_result = await process_attachment_ocr(
                             file_bytes=file_bytes,
@@ -2634,6 +3185,8 @@ async def process_attachments_intelligent(
                             "filename": att_name,
                             "type": att_type,
                             "size": att_size,
+                            "file_bytes": file_bytes,  # 💾 Keep for OneDrive upload
+                            "document_hash": document_hash,  # 🔐 For duplicate detection
                             "document_type": expected_type,
                             "ocr_text": ocr_result.get("text", ""),
                             "structured_data": ocr_result.get("structured", {}),
@@ -2772,11 +3325,30 @@ async def process_attachment_ocr(
     return result
 
 
-async def process_email_background(data: dict, message_id: str, user_email: str):
-    """Background task to process email without blocking Zapier webhook"""
+async def process_email_background(
+    data: dict, 
+    message_id: str, 
+    user_email: str, 
+    document_type_hint: str = None, 
+    priority: str = "medium"
+):
+    """
+    Background task to process email without blocking Zapier webhook
+    
+    Args:
+        data: Full webhook payload from Zapier
+        message_id: Microsoft Graph API message ID
+        user_email: Mailbox email (mj@cdtechnologies.de)
+        document_type_hint: Optional hint from Zapier (invoice|offer|order_confirmation|delivery_note|general)
+        priority: Optional priority from Zapier (low|medium|high|urgent)
+    """
     try:
         # NOW we can log (after response sent to Zapier)
-        logger.info(f"📧 Email webhook data: message_id={message_id}, user_email={user_email}")
+        logger.info(f"📧 Email webhook: message_id={message_id}, user={user_email}")
+        
+        if document_type_hint:
+            logger.info(f"🎯 FAST-PATH: Document type hint from Zapier: {document_type_hint} (priority: {priority})")
+        
         logger.info(f"🔍 DEBUG: Full data keys: {list(data.keys())}")
         
         # If message_id provided → Load full email from Graph API
@@ -2809,7 +3381,55 @@ async def process_email_background(data: dict, message_id: str, user_email: str)
             
             logger.info(f"✅ Email loaded: From={from_address}, Subject={subject}, Attachments={len(attachments)}")
             
-            # 📎 PROCESS ATTACHMENTS (if any)
+            # � SCHRITT 1: DUPLIKATPRÜFUNG VOR PROCESSING
+            tracking_db = get_email_tracking_db()
+            processing_start_time = asyncio.get_event_loop().time()
+            
+            # Check 1: Message ID bereits verarbeitet?
+            duplicate_by_id = tracking_db.check_duplicate_by_message_id(message_id)
+            if duplicate_by_id:
+                logger.warning(f"⚠️ DUPLICATE by Message ID: {message_id}")
+                logger.warning(f"   Original: {duplicate_by_id['processed_date']}")
+                logger.warning(f"   Workflow: {duplicate_by_id['workflow_path']}")
+                logger.warning(f"   OneDrive: {duplicate_by_id['onedrive_link']}")
+                
+                # Send duplicate notification (optional)
+                logger.info("⏭️ Skipping duplicate email processing")
+                return  # Early exit!
+            
+            # Check 2: Ähnlicher Content in letzten 24h?
+            duplicate_by_content = tracking_db.check_duplicate_by_content(
+                subject=subject,
+                body=body[:500],  # Nur erste 500 Zeichen
+                from_address=from_address,
+                hours_window=24
+            )
+            if duplicate_by_content:
+                logger.warning(f"⚠️ DUPLICATE by Content: Similar email from {from_address}")
+                logger.warning(f"   Original Subject: {duplicate_by_content['subject']}")
+                logger.warning(f"   Original Date: {duplicate_by_content['processed_date']}")
+                logger.warning(f"   OneDrive: {duplicate_by_content['onedrive_link']}")
+                
+                # Save as duplicate reference
+                tracking_db.save_email(
+                    message_id=message_id,
+                    user_email=user_email,
+                    from_address=from_address,
+                    subject=subject,
+                    body=body,
+                    received_date=email_data.get("receivedDateTime", ""),
+                    workflow_path="DUPLICATE",
+                    ai_analysis={},
+                    is_duplicate=True,
+                    duplicate_of=duplicate_by_content["message_id"]
+                )
+                
+                logger.info("⏭️ Skipping duplicate email processing")
+                return  # Early exit!
+            
+            logger.info("✅ No duplicate found - proceeding with processing")
+            
+            # �📎 PROCESS ATTACHMENTS (if any)
             attachment_results = []
             if len(attachments) > 0:
                 logger.info(f"📎 Processing {len(attachments)} attachment(s)...")
@@ -2818,9 +3438,34 @@ async def process_email_background(data: dict, message_id: str, user_email: str)
                     message_id=message_id,
                     user_email=user_email,
                     access_token=access_token,
-                    subject=subject
+                    subject=subject,
+                    document_type_hint=document_type_hint  # 🎯 NEW: Pass hint to attachment processing
                 )
                 logger.info(f"✅ Attachments processed: {len(attachment_results)} results")
+                
+                # 🔍 DUPLIKATPRÜFUNG FÜR ATTACHMENTS (File-Hash)
+                for att_result in attachment_results:
+                    file_bytes = att_result.get("file_bytes")
+                    if file_bytes:
+                        # Berechne File-Hash
+                        file_hash = tracking_db.calculate_file_hash(file_bytes)
+                        att_result["file_hash"] = file_hash
+                        
+                        # Prüfe ob dieser File-Hash bereits existiert
+                        duplicate_att = tracking_db.check_duplicate_attachment(file_hash)
+                        if duplicate_att:
+                            logger.warning(f"⚠️ DUPLICATE ATTACHMENT: {att_result.get('filename')}")
+                            logger.warning(f"   Original: {duplicate_att['filename']} from email '{duplicate_att['email_subject']}'")
+                            logger.warning(f"   Original Date: {duplicate_att['processed_date']}")
+                            logger.warning(f"   OneDrive: {duplicate_att['onedrive_link']}")
+                            
+                            att_result["is_duplicate"] = True
+                            att_result["duplicate_info"] = duplicate_att
+                        else:
+                            att_result["is_duplicate"] = False
+                    else:
+                        att_result["file_hash"] = ""
+                        att_result["is_duplicate"] = False
             
             # Process with full email data
             result = await orchestrator.process_communication(
@@ -2835,10 +3480,129 @@ async def process_email_background(data: dict, message_id: str, user_email: str)
                     "attachments": attachments,
                     "has_attachments": len(attachments) > 0,
                     "attachments_count": len(attachments),
-                    "attachment_results": attachment_results  # OCR results
+                    "attachment_results": attachment_results,  # OCR results
+                    "document_type_hint": document_type_hint,  # 🎯 NEW: Pass hint to AI analysis
+                    "priority": priority  # 🎯 NEW: Pass priority
                 }
             )
             logger.info(f"✅ Email processing complete: {result.get('workflow_path', 'unknown')}")
+            
+            # � ORDNERSTRUKTUR GENERIEREN
+            ai_analysis = result.get("ai_analysis", {})
+            
+            # Kontext für folder_logic vorbereiten
+            context = {
+                "dokumenttyp": ai_analysis.get("dokumenttyp", "unbekannt"),
+                "kunde": ai_analysis.get("kunde", "Unbekannt"),
+                "lieferant": ai_analysis.get("lieferant", "Unbekannt"),
+                "projekt": ai_analysis.get("projektnummer", "Unbekannt"),
+                "datum_dokument": ai_analysis.get("datum", ""),
+                "valid_attachments": attachment_results  # Alle verarbeiteten Anhänge
+            }
+            
+            try:
+                folder_info = generate_folder_and_filenames(
+                    context=context,
+                    gpt_result=ai_analysis,
+                    attachments=attachment_results
+                )
+                
+                logger.info(f"📁 Ordnerstruktur generiert: {folder_info.get('ordnerstruktur')}")
+                logger.info(f"📄 Dateinamen ({len(folder_info.get('pdf_filenames', []))}): {folder_info.get('pdf_filenames')}")
+                
+                # Ordnerstruktur zu attachment_results hinzufügen
+                for i, att_result in enumerate(attachment_results):
+                    if i < len(folder_info.get("pdf_filenames", [])):
+                        att_result["target_folder"] = folder_info.get("ordnerstruktur")
+                        att_result["target_filename"] = folder_info["pdf_filenames"][i]
+                        att_result["target_full_path"] = f"{folder_info['ordnerstruktur']}/{folder_info['pdf_filenames'][i]}"
+                        logger.info(f"  → {att_result.get('filename')} → {att_result['target_full_path']}")
+                
+            except Exception as folder_error:
+                logger.error(f"❌ Fehler bei Ordnerstruktur-Generierung: {folder_error}")
+                # Fallback: Basis-Ordner verwenden
+                for att_result in attachment_results:
+                    att_result["target_folder"] = "Scan/Unbekannt"
+                    att_result["target_filename"] = att_result.get("filename", "unknown.pdf")
+                    att_result["target_full_path"] = f"Scan/Unbekannt/{att_result['target_filename']}"
+            
+            # ☁️ ONEDRIVE UPLOAD
+            logger.info(f"☁️ Starte OneDrive Upload für {len(attachment_results)} Dateien...")
+            
+            for att_result in attachment_results:
+                try:
+                    # Skip Duplikate
+                    if att_result.get("is_duplicate", False):
+                        logger.warning(f"⏭️ Skipping duplicate: {att_result.get('filename')}")
+                        continue
+                    
+                    file_bytes = att_result.get("file_bytes")
+                    target_folder = att_result.get("target_folder", "Scan/Unbekannt")
+                    target_filename = att_result.get("target_filename", att_result.get("filename", "unknown.pdf"))
+                    
+                    if not file_bytes:
+                        logger.warning(f"⚠️ No file_bytes for {att_result.get('filename')}, skipping upload")
+                        continue
+                    
+                    logger.info(f"⬆️ Uploading: {target_filename} → {target_folder}")
+                    
+                    # OneDrive Upload
+                    upload_url = await upload_file_to_onedrive(
+                        user_mail=user_email,
+                        folder_path=target_folder,
+                        filename=target_filename,
+                        file_bytes=file_bytes,
+                        access_token_onedrive=access_token
+                    )
+                    
+                    if upload_url:
+                        logger.info(f"✅ Upload erfolgreich: {upload_url}")
+                        att_result["onedrive_uploaded"] = True
+                        att_result["onedrive_path"] = f"{target_folder}/{target_filename}"
+                        att_result["onedrive_url"] = upload_url
+                        
+                        # Update tracking DB
+                        try:
+                            tracking_db.update_onedrive_upload(
+                                message_id=message_id,
+                                onedrive_path=att_result["onedrive_path"],
+                                onedrive_link=upload_url
+                            )
+                            logger.info(f"💾 Tracking DB updated with OneDrive path")
+                        except Exception as db_update_error:
+                            logger.error(f"❌ Failed to update tracking DB: {db_update_error}")
+                    else:
+                        logger.error(f"❌ Upload fehlgeschlagen für {target_filename}")
+                        att_result["onedrive_uploaded"] = False
+                        att_result["onedrive_error"] = "Upload failed"
+                        
+                except Exception as upload_error:
+                    logger.error(f"❌ Upload-Fehler für {att_result.get('filename')}: {upload_error}")
+                    att_result["onedrive_uploaded"] = False
+                    att_result["onedrive_error"] = str(upload_error)
+            
+            # 💾 SPEICHERN IN EMAIL TRACKING DB
+            processing_time = asyncio.get_event_loop().time() - processing_start_time
+
+            
+            try:
+                email_id = tracking_db.save_email(
+                    message_id=message_id,
+                    user_email=user_email,
+                    from_address=from_address,
+                    subject=subject,
+                    body=body[:1000],  # Nur erste 1000 Zeichen
+                    received_date=email_data.get("receivedDateTime", ""),
+                    workflow_path=result.get("workflow_path", "unknown"),
+                    ai_analysis=ai_analysis,
+                    attachment_results=attachment_results,
+                    processing_time=processing_time,
+                    is_duplicate=False,
+                    duplicate_of=None
+                )
+                logger.info(f"💾 Email saved to tracking DB with ID: {email_id}")
+            except Exception as db_error:
+                logger.error(f"❌ Failed to save to tracking DB: {db_error}")
             
         else:
             # Fallback: Process with provided data (no Graph API)
@@ -3198,10 +3962,11 @@ async def process_feedback(request: Request):
     - Falsche Kontakt-Zuordnungen
     - Fehlende Funktionen
     - Verbesserungsvorschläge
+    - Datenqualität (korrekt/fehlerhaft)
     
     Expected payload:
     {
-        "type": "bug|feature|improvement|wrong_match",
+        "type": "bug|feature|improvement|wrong_match|data_good|data_error",
         "message": "Beschreibung des Problems",
         "context": {
             "email_id": "...",
@@ -3220,13 +3985,57 @@ async def process_feedback(request: Request):
         context = data.get("context", {})
         reporter = data.get("reporter", "unknown")
         
+        # Handle special action types from notification buttons
+        action = data.get("action", feedback_type)
+        
+        # Map actions to feedback types
+        action_mapping = {
+            "data_good": {
+                "type": "data_quality_good",
+                "default_message": "Alle Daten wurden korrekt ausgewertet und zugeordnet.",
+                "emoji": "✅",
+                "priority": "low"
+            },
+            "data_error": {
+                "type": "data_quality_error",
+                "default_message": "Fehler bei der Datenauswertung oder -zuordnung erkannt.",
+                "emoji": "⚠️",
+                "priority": "high"
+            },
+            "create_supplier": {
+                "type": "supplier_creation",
+                "default_message": "Lieferant soll angelegt werden.",
+                "emoji": "🏭",
+                "priority": "medium"
+            },
+            "report_issue": {
+                "type": "bug_report",
+                "default_message": "Problem oder Fehlverhalten gemeldet.",
+                "emoji": "🐛",
+                "priority": "high"
+            }
+        }
+        
+        # Get action details or use defaults
+        action_info = action_mapping.get(action, {
+            "type": feedback_type,
+            "default_message": message or "Kein Details angegeben",
+            "emoji": "📝",
+            "priority": "medium"
+        })
+        
+        # Use provided message or default
+        final_message = message or action_info["default_message"]
+        
         # Store in optimization list (simple file-based for now)
         feedback_entry = {
             "timestamp": now_berlin().isoformat(),
-            "type": feedback_type,
-            "message": message,
+            "type": action_info["type"],
+            "action": action,
+            "message": final_message,
             "context": context,
             "reporter": reporter,
+            "priority": action_info["priority"],
             "status": "new"
         }
         
@@ -3241,14 +4050,24 @@ async def process_feedback(request: Request):
             logger.error(f"❌ Failed to write feedback: {e}")
         
         # Log to console for immediate visibility
-        logger.info(f"📝 FEEDBACK [{feedback_type}]: {message}")
+        emoji = action_info["emoji"]
+        logger.info(f"{emoji} FEEDBACK [{action_info['type']}] Priority: {action_info['priority'].upper()}: {final_message}")
         if context:
             logger.info(f"   Context: {context}")
         
+        # Return user-friendly response based on action
+        response_messages = {
+            "data_good": "✅ Danke für die Bestätigung! Datenqualität dokumentiert.",
+            "data_error": "⚠️ Fehler dokumentiert. Wir werden das überprüfen.",
+            "create_supplier": "🏭 Lieferanten-Anfrage erfasst.",
+            "report_issue": "🐛 Problem erfasst. Vielen Dank für die Meldung!"
+        }
+        
         return {
             "status": "success",
-            "message": "Feedback erfasst - Vielen Dank!",
-            "feedback_id": f"fb-{int(now_berlin().timestamp())}"
+            "message": response_messages.get(action, "Feedback erfasst - Vielen Dank!"),
+            "feedback_id": f"fb-{int(now_berlin().timestamp())}",
+            "priority": action_info["priority"]
         }
         
     except Exception as e:

@@ -3,6 +3,7 @@ python-dotenv
 apify
 urllib3>=2.0.0
 aiohttp
+httpx
 asyncio
 fastapi>=0.100.0
 uvicorn>=0.20.0
