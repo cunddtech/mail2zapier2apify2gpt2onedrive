@@ -1488,21 +1488,22 @@ async def save_to_database(
     message_type: str,
     from_contact: str,
     content: str,
-    final_state: Dict
+    final_state: Dict,
+    message_id: str = ""
 ) -> int:
     """💾 Save processing results to database and return record ID"""
     import asyncio
     
     try:
         loop = asyncio.get_event_loop()
-        record_id = await loop.run_in_executor(None, _save_to_db_sync, processing_result, message_type, from_contact, content, final_state)
+        record_id = await loop.run_in_executor(None, _save_to_db_sync, processing_result, message_type, from_contact, content, final_state, message_id)
         return record_id
     except Exception as e:
         logger.error(f"❌ DB save error: {e}")
         raise
 
 
-def _save_to_db_sync(processing_result, message_type, from_contact, content, final_state) -> int:
+def _save_to_db_sync(processing_result, message_type, from_contact, content, final_state, message_id="") -> int:
     """Synchronous database operations - returns record ID"""
     import sqlite3
     conn = sqlite3.connect(DB_PATH)
@@ -1545,7 +1546,7 @@ def _save_to_db_sync(processing_result, message_type, from_contact, content, fin
                 ocr_text, ocr_route, file_hash, processed_date
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                email_data.get("message_id", ""),
+                message_id,
                 att.get("filename"),
                 att.get("type"),
                 att.get("size"),
@@ -2777,7 +2778,8 @@ Antworten Sie mit den erforderlichen Kontakt-Details oder markieren Sie als "Pri
             db_record_id = None
             db_error_msg = None
             try:
-                db_record_id = await save_to_database(processing_result, message_type, from_contact, content, final_state)
+                message_id = additional_data.get("message_id", "") if additional_data else ""
+                db_record_id = await save_to_database(processing_result, message_type, from_contact, content, final_state, message_id)
                 db_saved = True
                 logger.info(f"✅ Data saved to database (record_id: {db_record_id})")
             except Exception as db_error:
@@ -3195,7 +3197,8 @@ async def process_attachments_intelligent(
                         # Build email_data dict for OCR function
                         email_data_dict = {
                             "user_email": user_email,
-                            "message_id": message_id
+                            "message_id": message_id,
+                            "access_token": access_token
                         }
                         
                         # Choose OCR route based on type
@@ -3285,7 +3288,7 @@ async def process_attachment_ocr(
                     user_email=email_data.get("user_email", "mj@cdtechnologies.de"),
                     message_id=email_data.get("message_id"),
                     attachment_id=attachment.get("id"),
-                    filename=filename
+                    access_token=email_data.get("access_token")
                 )
                 logger.info(f"🔗 Generated public URL for invoice: {public_url[:100]}...")
                 
