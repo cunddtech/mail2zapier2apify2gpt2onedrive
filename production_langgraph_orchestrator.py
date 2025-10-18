@@ -4726,6 +4726,204 @@ async def reset_contact_cache(request: Request):
         logger.error(f"❌ Cache reset error: {e}")
         raise HTTPException(status_code=500, detail=f"Cache reset failed: {str(e)}")
 
+
+# ===============================
+# 💰 PAYMENT MATCHING API ENDPOINTS
+# ===============================
+
+@app.post("/api/payment/import-csv")
+async def import_payment_csv(request: Request):
+    """
+    📥 Import bank transactions from CSV file
+    
+    Expected payload:
+    {
+        "csv_content": "base64 encoded CSV",
+        "format": "sparkasse" | "volksbank" | "generic" | "auto"
+    }
+    """
+    
+    try:
+        from modules.database.csv_import import import_csv_auto_detect
+        import base64
+        import tempfile
+        
+        data = await request.json()
+        
+        # Decode CSV content
+        csv_content = base64.b64decode(data.get("csv_content", ""))
+        
+        # Write to temp file
+        with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.csv') as f:
+            f.write(csv_content)
+            temp_path = f.name
+        
+        # Import
+        stats = import_csv_auto_detect(temp_path)
+        
+        # Cleanup
+        os.remove(temp_path)
+        
+        return {
+            "status": "success",
+            "stats": stats
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ CSV import error: {e}")
+        raise HTTPException(status_code=500, detail=f"CSV import failed: {str(e)}")
+
+
+@app.post("/api/payment/import-transaction")
+async def import_single_transaction(request: Request):
+    """
+    💳 Import single bank transaction
+    
+    Expected payload:
+    {
+        "transaction_id": "BANK-TX-123",
+        "transaction_date": "2025-10-18",
+        "amount": -1500.00,
+        "sender_name": "ACME GmbH",
+        "sender_iban": "DE89370400440532099999",
+        "receiver_name": "C&D Tech GmbH",
+        "receiver_iban": "DE89370400440532013000",
+        "purpose": "Rechnung RE-2025-101"
+    }
+    """
+    
+    try:
+        from modules.database.payment_matching import import_bank_transaction
+        
+        data = await request.json()
+        
+        transaction_id = import_bank_transaction(data)
+        
+        return {
+            "status": "success",
+            "transaction_id": transaction_id
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Transaction import error: {e}")
+        raise HTTPException(status_code=500, detail=f"Transaction import failed: {str(e)}")
+
+
+@app.post("/api/payment/auto-match")
+async def auto_match_payments(request: Request):
+    """
+    🔍 Auto-match all unmatched transactions to invoices
+    
+    Optional payload:
+    {
+        "min_confidence": 0.7
+    }
+    """
+    
+    try:
+        from modules.database.payment_matching import auto_match_all_transactions
+        
+        try:
+            data = await request.json()
+            min_confidence = data.get("min_confidence", 0.7)
+        except:
+            min_confidence = 0.7
+        
+        stats = auto_match_all_transactions(min_confidence=min_confidence)
+        
+        return {
+            "status": "success",
+            "stats": stats
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Auto-match error: {e}")
+        raise HTTPException(status_code=500, detail=f"Auto-match failed: {str(e)}")
+
+
+@app.get("/api/payment/unmatched")
+async def get_unmatched_payments():
+    """
+    📋 Get all unmatched bank transactions
+    """
+    
+    try:
+        from modules.database.payment_matching import get_unmatched_transactions
+        
+        unmatched = get_unmatched_transactions()
+        
+        return {
+            "status": "success",
+            "count": len(unmatched),
+            "transactions": unmatched
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Get unmatched error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get unmatched transactions: {str(e)}")
+
+
+@app.get("/api/payment/statistics")
+async def get_payment_stats():
+    """
+    📊 Get payment matching statistics
+    """
+    
+    try:
+        from modules.database.payment_matching import get_payment_statistics
+        
+        stats = get_payment_statistics()
+        
+        return {
+            "status": "success",
+            "statistics": stats
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Get statistics error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get statistics: {str(e)}")
+
+
+@app.post("/api/payment/match")
+async def manual_match_payment(request: Request):
+    """
+    🔗 Manually match transaction to invoice
+    
+    Expected payload:
+    {
+        "transaction_id": 1,
+        "invoice_number": "RE-2025-101"
+    }
+    """
+    
+    try:
+        from modules.database.payment_matching import match_transaction_to_invoice
+        
+        data = await request.json()
+        
+        transaction_id = data.get("transaction_id")
+        invoice_number = data.get("invoice_number")
+        
+        if not transaction_id or not invoice_number:
+            raise HTTPException(status_code=400, detail="Missing transaction_id or invoice_number")
+        
+        success = match_transaction_to_invoice(transaction_id, invoice_number, matched_by="manual")
+        
+        if success:
+            return {
+                "status": "success",
+                "message": f"Transaction {transaction_id} matched to invoice {invoice_number}"
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Match creation failed")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Manual match error: {e}")
+        raise HTTPException(status_code=500, detail=f"Manual match failed: {str(e)}")
+
+
 # ===============================
 # PRODUCTION SERVER STARTUP
 # ===============================
@@ -4737,14 +4935,23 @@ if __name__ == "__main__":
     print("✅ FastAPI server configured")
     print("✅ OpenAI GPT-4 integration ready")
     print("✅ WeClapp CRM integration ready")
+    print("✅ Payment Matching System ready  💰 NEW")
     print("🌐 Server starting on http://0.0.0.0:5001")
     print("")
     print("📡 WEBHOOK ENDPOINTS:")
     print("  - POST /webhook/ai-email")
     print("  - POST /webhook/ai-call")
     print("  - POST /webhook/frontdesk  🎙️")
-    print("  - POST /webhook/feedback   🐛 NEW")
+    print("  - POST /webhook/feedback   🐛")
     print("  - POST /webhook/ai-whatsapp")
+    print("")
+    print("💰 PAYMENT API ENDPOINTS:")
+    print("  - POST /api/payment/import-csv")
+    print("  - POST /api/payment/import-transaction")
+    print("  - POST /api/payment/auto-match")
+    print("  - POST /api/payment/match (manual)")
+    print("  - GET  /api/payment/unmatched")
+    print("  - GET  /api/payment/statistics")
     print("")
     print("🎯 READY FOR PRODUCTION DEPLOYMENT!")
     
