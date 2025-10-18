@@ -321,6 +321,110 @@ def get_invoice_statistics() -> Dict:
     }
 
 
+def get_recent_invoices(limit: int = 20) -> List[Dict]:
+    """Get recent invoices"""
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT 
+            invoice_number, invoice_date, due_date, amount_total, currency,
+            vendor_name, customer_name, status, direction, onedrive_link,
+            payment_date, created_at
+        FROM invoices
+        ORDER BY created_at DESC
+        LIMIT ?
+    """, (limit,))
+    
+    invoices = []
+    for row in cursor.fetchall():
+        invoices.append({
+            "invoice_number": row[0],
+            "invoice_date": row[1],
+            "due_date": row[2],
+            "amount_total": row[3],
+            "currency": row[4],
+            "vendor_name": row[5],
+            "customer_name": row[6],
+            "status": row[7],
+            "direction": row[8],
+            "onedrive_link": row[9],
+            "payment_date": row[10],
+            "created_at": row[11]
+        })
+    
+    conn.close()
+    return invoices
+
+
+def get_invoice_by_number(invoice_number: str) -> Dict:
+    """Get invoice by invoice number"""
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT 
+            id, invoice_number, invoice_date, due_date, amount_net, amount_tax, amount_total,
+            currency, vendor_name, vendor_id, customer_name, customer_id, status, direction,
+            onedrive_link, payment_date, payment_method, created_at, updated_at
+        FROM invoices
+        WHERE invoice_number = ?
+    """, (invoice_number,))
+    
+    row = cursor.fetchone()
+    
+    if not row:
+        conn.close()
+        return None
+    
+    invoice = {
+        "id": row[0],
+        "invoice_number": row[1],
+        "invoice_date": row[2],
+        "due_date": row[3],
+        "amount_net": row[4],
+        "amount_tax": row[5],
+        "amount_total": row[6],
+        "currency": row[7],
+        "vendor_name": row[8],
+        "vendor_id": row[9],
+        "customer_name": row[10],
+        "customer_id": row[11],
+        "status": row[12],
+        "direction": row[13],
+        "onedrive_link": row[14],
+        "payment_date": row[15],
+        "payment_method": row[16],
+        "created_at": row[17],
+        "updated_at": row[18]
+    }
+    
+    # Get items
+    cursor.execute("""
+        SELECT position, description, quantity, unit_price, total_price
+        FROM invoice_items
+        WHERE invoice_id = ?
+        ORDER BY position
+    """, (invoice["id"],))
+    
+    items = []
+    for item_row in cursor.fetchall():
+        items.append({
+            "position": item_row[0],
+            "description": item_row[1],
+            "quantity": item_row[2],
+            "unit_price": item_row[3],
+            "total_price": item_row[4]
+        })
+    
+    invoice["items"] = items
+    
+    conn.close()
+    return invoice
+
+
 # Auto-initialize on import
 if not os.path.exists(DB_PATH):
     init_invoice_db()

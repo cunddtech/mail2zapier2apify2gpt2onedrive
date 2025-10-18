@@ -4925,6 +4925,70 @@ async def manual_match_payment(request: Request):
 
 
 # ===============================
+# 📊 INVOICE API ENDPOINTS
+# ===============================
+
+@app.get("/api/invoice/statistics")
+async def get_invoice_statistics():
+    """Get invoice statistics"""
+    try:
+        from modules.database.invoice_tracking_db import get_invoice_statistics
+        
+        stats = get_invoice_statistics()
+        
+        return {
+            "status": "success",
+            "statistics": stats
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Invoice statistics error: {e}")
+        raise HTTPException(status_code=500, detail=f"Statistics failed: {str(e)}")
+
+
+@app.get("/api/invoice/recent")
+async def get_recent_invoices(limit: int = 20):
+    """Get recent invoices"""
+    try:
+        from modules.database.invoice_tracking_db import get_recent_invoices
+        
+        invoices = get_recent_invoices(limit)
+        
+        return {
+            "status": "success",
+            "invoices": invoices,
+            "count": len(invoices)
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Recent invoices error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch invoices: {str(e)}")
+
+
+@app.get("/api/invoice/{invoice_number}")
+async def get_invoice_details(invoice_number: str):
+    """Get invoice details by number"""
+    try:
+        from modules.database.invoice_tracking_db import get_invoice_by_number
+        
+        invoice = get_invoice_by_number(invoice_number)
+        
+        if not invoice:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+        
+        return {
+            "status": "success",
+            "invoice": invoice
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Invoice details error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch invoice: {str(e)}")
+
+
+# ===============================
 # PRODUCTION SERVER STARTUP
 # ===============================
 
@@ -4948,6 +5012,15 @@ if __name__ == "__main__":
     print("💰 PAYMENT API ENDPOINTS:")
     print("  - POST /api/payment/import-csv")
     print("  - POST /api/payment/import-transaction")
+    print("  - POST /api/payment/auto-match")
+    print("  - GET  /api/payment/unmatched")
+    print("  - GET  /api/payment/statistics")
+    print("  - POST /api/payment/match")
+    print("")
+    print("📊 INVOICE API ENDPOINTS:")
+    print("  - GET  /api/invoice/statistics")
+    print("  - GET  /api/invoice/recent?limit=20")
+    print("  - GET  /api/invoice/{invoice_number}")
     print("  - POST /api/payment/auto-match")
     print("  - POST /api/payment/match (manual)")
     print("  - GET  /api/payment/unmatched")
