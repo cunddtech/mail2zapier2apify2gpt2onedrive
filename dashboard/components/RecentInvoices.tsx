@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import axios from 'axios'
 
 interface RecentInvoicesProps {
   apiUrl: string
@@ -6,16 +7,19 @@ interface RecentInvoicesProps {
 }
 
 interface Invoice {
-  id: number
+  id?: number
   invoice_number: string
   invoice_date: string
   due_date: string
   amount_total: number
-  vendor_name: string
-  customer_name: string
+  currency?: string
+  vendor_name?: string
+  customer_name?: string
   direction: string
   status: string
   onedrive_link?: string
+  payment_date?: string
+  created_at?: string
 }
 
 export default function RecentInvoices({ apiUrl, refreshTrigger }: RecentInvoicesProps) {
@@ -23,51 +27,58 @@ export default function RecentInvoices({ apiUrl, refreshTrigger }: RecentInvoice
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    setLoading(true)
-    
-    // Mock data (API endpoint not yet created)
-    const mockInvoices: Invoice[] = [
-      {
-        id: 1,
-        invoice_number: 'RE-2025-001',
-        invoice_date: '2025-10-01',
-        due_date: '2025-10-31',
-        amount_total: 1234.56,
-        vendor_name: 'Novoferm Vertriebs GmbH',
-        customer_name: 'C&D Tech GmbH',
-        direction: 'incoming',
-        status: 'paid',
-        onedrive_link: 'https://cdtech1-my.sharepoint.com/...'
-      },
-      {
-        id: 2,
-        invoice_number: 'RE-2025-002',
-        invoice_date: '2025-10-05',
-        due_date: '2025-11-05',
-        amount_total: 2500.00,
-        vendor_name: 'Best Customer AG',
-        customer_name: 'C&D Tech GmbH',
-        direction: 'outgoing',
-        status: 'paid'
-      },
-      {
-        id: 3,
-        invoice_number: 'RE-2025-003',
-        invoice_date: '2025-09-15',
-        due_date: '2025-10-15',
-        amount_total: 999.99,
-        vendor_name: 'Supplier XYZ',
-        customer_name: 'C&D Tech GmbH',
-        direction: 'incoming',
-        status: 'overdue'
+    const fetchInvoices = async () => {
+      setLoading(true)
+      
+      try {
+        // Try real API first
+        const response = await axios.get(`${apiUrl}/api/invoice/recent?limit=20`)
+        setInvoices(response.data.invoices)
+      } catch (error) {
+        console.log('Using mock data (API not ready):', error)
+        
+        // Fallback to mock data
+        const mockInvoices: Invoice[] = [
+          {
+            invoice_number: 'RE-2025-001',
+            invoice_date: '2025-10-01',
+            due_date: '2025-10-31',
+            amount_total: 1234.56,
+            vendor_name: 'Novoferm Vertriebs GmbH',
+            customer_name: 'C&D Tech GmbH',
+            direction: 'incoming',
+            status: 'paid',
+            onedrive_link: 'https://cdtech1-my.sharepoint.com/...'
+          },
+          {
+            invoice_number: 'RE-2025-002',
+            invoice_date: '2025-10-05',
+            due_date: '2025-11-05',
+            amount_total: 2500.00,
+            vendor_name: 'Best Customer AG',
+            customer_name: 'C&D Tech GmbH',
+            direction: 'outgoing',
+            status: 'paid'
+          },
+          {
+            invoice_number: 'RE-2025-003',
+            invoice_date: '2025-09-15',
+            due_date: '2025-10-15',
+            amount_total: 999.99,
+            vendor_name: 'Supplier XYZ',
+            customer_name: 'C&D Tech GmbH',
+            direction: 'incoming',
+            status: 'overdue'
+          }
+        ]
+        
+        setInvoices(mockInvoices)
+      } finally {
+        setLoading(false)
       }
-    ]
+    }
     
-    setTimeout(() => {
-      setInvoices(mockInvoices)
-      setLoading(false)
-    }, 500)
-    
+    fetchInvoices()
   }, [apiUrl, refreshTrigger])
 
   if (loading) {
@@ -131,8 +142,8 @@ export default function RecentInvoices({ apiUrl, refreshTrigger }: RecentInvoice
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {invoices.map((invoice) => (
-              <tr key={invoice.id} className="hover:bg-gray-50">
+            {invoices.map((invoice, idx) => (
+              <tr key={invoice.invoice_number || idx} className="hover:bg-gray-50">
                 <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-blue-600">
                   {invoice.invoice_number}
                 </td>
@@ -140,7 +151,7 @@ export default function RecentInvoices({ apiUrl, refreshTrigger }: RecentInvoice
                   {invoice.invoice_date}
                 </td>
                 <td className="px-4 py-3 text-sm text-gray-700">
-                  {invoice.direction === 'incoming' ? invoice.vendor_name : invoice.customer_name}
+                  {invoice.direction === 'incoming' ? (invoice.vendor_name || 'N/A') : (invoice.customer_name || 'N/A')}
                 </td>
                 <td className="px-4 py-3 whitespace-nowrap text-sm">
                   {invoice.direction === 'incoming' ? (

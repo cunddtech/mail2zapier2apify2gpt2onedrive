@@ -11,26 +11,34 @@ export default function InvoiceStats({ apiUrl, refreshTrigger }: InvoiceStatsPro
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    setLoading(true)
-    
-    // Mock data for now (API endpoint not yet created)
-    // TODO: Replace with actual API call when invoice stats endpoint is ready
-    
-    const mockStats = {
-      total_count: 8,
-      open_count: 4,
-      paid_count: 3,
-      overdue_count: 1,
-      open_incoming_total: 2234.55,
-      open_outgoing_total: 2500.00,
-      overdue_total: 999.99
+    const fetchStats = async () => {
+      setLoading(true)
+      
+      try {
+        // Try real API first
+        const response = await axios.get(`${apiUrl}/api/invoice/statistics`)
+        setStats(response.data.statistics)
+      } catch (error) {
+        console.log('Using mock data (API not ready):', error)
+        
+        // Fallback to mock data
+        const mockStats = {
+          total_count: 8,
+          open_count: 4,
+          paid_count: 3,
+          overdue_count: 1,
+          total_open_incoming: 2234.55,
+          total_open_outgoing: 2500.00,
+          total_overdue: 999.99
+        }
+        
+        setStats(mockStats)
+      } finally {
+        setLoading(false)
+      }
     }
     
-    setTimeout(() => {
-      setStats(mockStats)
-      setLoading(false)
-    }, 500)
-    
+    fetchStats()
   }, [apiUrl, refreshTrigger])
 
   if (loading) {
@@ -54,9 +62,10 @@ export default function InvoiceStats({ apiUrl, refreshTrigger }: InvoiceStatsPro
       </h2>
 
       {/* Summary Stats */}
+            {/* Summary Stats */}
       <div className="grid grid-cols-2 gap-4 mb-6">
         <div className="text-center p-4 bg-blue-50 rounded-lg">
-          <div className="text-3xl font-bold text-blue-600">{stats?.total_count || 0}</div>
+          <div className="text-3xl font-bold text-blue-600">{(stats?.total_count || stats?.count_open || 0) + (stats?.paid_count || 0)}</div>
           <div className="text-sm text-gray-600 mt-1">Gesamt</div>
         </div>
         
@@ -66,13 +75,37 @@ export default function InvoiceStats({ apiUrl, refreshTrigger }: InvoiceStatsPro
         </div>
         
         <div className="text-center p-4 bg-yellow-50 rounded-lg">
-          <div className="text-3xl font-bold text-yellow-600">{stats?.open_count || 0}</div>
+          <div className="text-3xl font-bold text-yellow-600">{stats?.open_count || stats?.count_open || 0}</div>
           <div className="text-sm text-gray-600 mt-1">Offen</div>
         </div>
         
         <div className="text-center p-4 bg-red-50 rounded-lg">
-          <div className="text-3xl font-bold text-red-600">{stats?.overdue_count || 0}</div>
+          <div className="text-3xl font-bold text-red-600">{stats?.overdue_count || stats?.count_overdue || 0}</div>
           <div className="text-sm text-gray-600 mt-1">Überfällig</div>
+        </div>
+      </div>
+
+      {/* Financial Summary */}
+      <div className="border-t pt-4 space-y-2">
+        <div className="flex justify-between text-sm">
+          <span className="text-gray-600">Offen Eingehend:</span>
+          <span className="font-semibold text-red-600">
+            {(stats?.open_incoming_total || stats?.total_open_incoming || 0).toFixed(2)} EUR
+          </span>
+        </div>
+        
+        <div className="flex justify-between text-sm">
+          <span className="text-gray-600">Offen Ausgehend:</span>
+          <span className="font-semibold text-green-600">
+            {(stats?.open_outgoing_total || stats?.total_open_outgoing || 0).toFixed(2)} EUR
+          </span>
+        </div>
+        
+        <div className="flex justify-between text-sm font-bold border-t pt-2">
+          <span className="text-gray-900">Überfällig:</span>
+          <span className="text-red-600">
+            {(stats?.overdue_total || stats?.total_overdue || 0).toFixed(2)} EUR
+          </span>
         </div>
       </div>
 

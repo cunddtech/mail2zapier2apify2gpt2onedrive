@@ -35,7 +35,7 @@ ZAPIER_FILTERS = {
     "has_pdf_attachment": True,
     "min_attachment_size_kb": 10,
     "days_back": 30,
-    "max_test_emails": 1  # Nur 1 Email für detaillierten Test
+    "max_test_emails": 10  # Zurück auf 10 für vollen Test
 }
 
 
