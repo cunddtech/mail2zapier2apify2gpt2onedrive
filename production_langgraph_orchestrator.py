@@ -194,6 +194,208 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
     """
     notification_type = notification_data.get("notification_type", "unknown_contact_action_required")
     
+    if notification_type == "known_contact_enhanced":
+        # ✅ WEG B: Known Contact Enhanced with Smart Actions & Dashboard Links
+        subject = notification_data.get('subject', 'Kontakt verarbeitet')
+        contact_match = notification_data.get('contact_match', {})
+        contact_name = contact_match.get('contact_name', 'Unbekannt')
+        company = contact_match.get('company', '')
+        contact_id = contact_match.get('contact_id', '')
+        from_contact = notification_data.get('from', '')
+        body_preview = notification_data.get('body_preview', notification_data.get('content_preview', ''))
+        ai_analysis = notification_data.get('ai_analysis', {})
+        action_options = notification_data.get('action_options', [])
+        tasks_generated = notification_data.get('tasks_generated', [])
+        
+        # ✨ Build Dashboard Links HTML (same as WEG A)
+        dashboard_links_html = ""
+        invoice_id = notification_data.get("invoice_id")
+        opportunity_id = notification_data.get("opportunity_id")
+        onedrive_links = notification_data.get("onedrive_links", [])
+        
+        dashboard_items = []
+        
+        if invoice_id:
+            invoice_number = notification_data.get("invoice_number", invoice_id)
+            dashboard_items.append(
+                f"📄 <a href='https://my-langgraph-agent-production.up.railway.app/api/invoice/{invoice_number}' target='_blank'>Rechnung #{invoice_number} im System anzeigen</a>"
+            )
+        
+        if opportunity_id:
+            opportunity_title = notification_data.get("opportunity_title", f"Opportunity #{opportunity_id}")
+            dashboard_items.append(
+                f"💼 <a href='https://my-langgraph-agent-production.up.railway.app/api/opportunity/{opportunity_id}' target='_blank'>Verkaufschance anzeigen: {opportunity_title}</a>"
+            )
+        
+        if onedrive_links:
+            for link_data in onedrive_links:
+                filename = link_data.get("filename", "Datei")
+                sharing_link = link_data.get("sharing_link")
+                if sharing_link:
+                    dashboard_items.append(
+                        f"☁️ <a href='{sharing_link}' target='_blank'>{filename} in OneDrive öffnen</a>"
+                    )
+        
+        dashboard_items.append(
+            "📊 <a href='http://localhost:3000' target='_blank'>Invoice & Payment Dashboard öffnen</a>"
+        )
+        dashboard_items.append(
+            "💰 <a href='http://localhost:3000/sales-pipeline' target='_blank'>Sales Pipeline Dashboard öffnen</a>"
+        )
+        
+        if dashboard_items:
+            items_html = "<br>".join([f"&nbsp;&nbsp;&nbsp;&nbsp;{item}" for item in dashboard_items])
+            dashboard_links_html = f"""
+<div class="info-box" style="background: linear-gradient(135deg, #E8F5E9 0%, #C8E6C9 100%); border-left: 5px solid #66BB6A;">
+<h3>🔗 Relevante Links:</h3>
+<p>
+{items_html}
+</p>
+</div>
+"""
+        
+        # 📎 Attachments HTML
+        attachments_html = ""
+        attachments_count = notification_data.get("attachments_count", 0)
+        if attachments_count > 0:
+            attachments_html = f"<p><strong>📎 Anhänge:</strong> {attachments_count} Datei(en) verarbeitet</p>"
+        
+        # ✅ Tasks HTML
+        tasks_html = ""
+        if tasks_generated:
+            tasks_items = []
+            for task in tasks_generated:
+                task_title = task.get('title', 'Unbekannte Aufgabe')
+                task_priority = task.get('priority', 'normal')
+                priority_emoji = "🔴" if task_priority == "high" else "🟡" if task_priority == "medium" else "🟢"
+                tasks_items.append(f"{priority_emoji} {task_title}")
+            
+            tasks_list = "<br>".join([f"&nbsp;&nbsp;&nbsp;&nbsp;{item}" for item in tasks_items])
+            tasks_html = f"""
+<div class="info-box" style="background: linear-gradient(135deg, #FFF3E0 0%, #FFE0B2 100%); border-left: 5px solid #FF9800;">
+<h3>✅ Automatisch erstellte Aufgaben ({len(tasks_generated)}):</h3>
+<p>
+{tasks_list}
+</p>
+</div>
+"""
+        
+        # Build action buttons HTML
+        buttons_html = ""
+        for option in action_options:
+            action = option.get("action", "")
+            label = option.get("label", "")
+            description = option.get("description", "")
+            url = option.get("url", "")
+            color = option.get("color", "primary")
+            
+            color_class = {
+                "view_in_crm": "btn-info",
+                "schedule_appointment": "btn-primary",
+                "create_quote": "btn-success",
+                "call_customer": "btn-info",
+                "create_order": "btn-create",
+                "urgent_response": "btn-warning",
+                "complete_task": "btn-secondary",
+                "data_good": "btn-success",
+                "data_error": "btn-warning",
+                "primary": "btn-primary",
+                "success": "btn-success",
+                "info": "btn-info",
+                "warning": "btn-warning",
+                "secondary": "btn-secondary",
+                "create": "btn-create"
+            }.get(action if action else color, "btn-primary")
+            
+            # Route feedback actions to /webhook/feedback
+            if action in ["data_good", "data_error"]:
+                button_url = f"https://my-langgraph-agent-production.up.railway.app/webhook/feedback?action={action}&contact_id={contact_id}&from={from_contact}"
+            elif url:
+                button_url = url
+            else:
+                button_url = f"https://cundd.weclapp.com/webapp/view/party/{contact_id}"
+            
+            buttons_html += f"""
+            <a href="{button_url}" class="button {color_class}" target="_blank">{label}</a>
+            <p class="button-desc">{description}</p>
+            """
+        
+        return f"""
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style>
+    body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #2C3E50; background: #FFFFFF; margin: 0; padding: 0; }}
+    .container {{ max-width: 650px; margin: 0 auto; padding: 0; background: white; border-radius: 15px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); overflow: hidden; }}
+    .header {{ background: linear-gradient(135deg, #55EFC4 0%, #00B894 100%); color: white; padding: 30px; text-align: center; }}
+    .header h2 {{ margin: 0; font-size: 24px; text-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+    .content {{ background: #FFFFFF; padding: 30px; }}
+    .info-box {{ background: linear-gradient(135deg, #E8F8F5 0%, #D1F2EB 100%); padding: 20px; margin: 20px 0; border-radius: 10px; border-left: 5px solid #00B894; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }}
+    .info-box h3 {{ color: #00B894; margin-top: 0; font-size: 18px; }}
+    .info-box p {{ color: #34495E; margin: 8px 0; }}
+    .action-buttons {{ margin: 30px 0; text-align: center; }}
+    .action-buttons h3 {{ color: #2C3E50; margin-bottom: 20px; }}
+    .button {{ display: inline-block; padding: 14px 28px; margin: 8px 5px; text-decoration: none; border-radius: 25px; font-weight: bold; text-align: center; transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }}
+    .btn-create {{ background: linear-gradient(135deg, #52C234 0%, #47A025 100%); color: white; }}
+    .btn-create:hover {{ box-shadow: 0 6px 16px rgba(82,194,52,0.4); transform: translateY(-2px); }}
+    .btn-primary {{ background: linear-gradient(135deg, #3498DB 0%, #2980B9 100%); color: white; }}
+    .btn-primary:hover {{ box-shadow: 0 6px 16px rgba(52,152,219,0.4); transform: translateY(-2px); }}
+    .btn-info {{ background: linear-gradient(135deg, #74B9FF 0%, #0984E3 100%); color: white; }}
+    .btn-info:hover {{ box-shadow: 0 6px 16px rgba(116,185,255,0.4); transform: translateY(-2px); }}
+    .btn-success {{ background: linear-gradient(135deg, #00D2A0 0%, #00B894 100%); color: white; }}
+    .btn-success:hover {{ box-shadow: 0 6px 16px rgba(0,210,160,0.4); transform: translateY(-2px); }}
+    .btn-warning {{ background: linear-gradient(135deg, #FDCB6E 0%, #E17055 100%); color: white; }}
+    .btn-warning:hover {{ box-shadow: 0 6px 16px rgba(253,203,110,0.4); transform: translateY(-2px); }}
+    .btn-secondary {{ background: linear-gradient(135deg, #FFEAA7 0%, #FDCB6E 100%); color: #2C3E50; }}
+    .btn-secondary:hover {{ box-shadow: 0 6px 16px rgba(255,234,167,0.4); transform: translateY(-2px); }}
+    .ai-analysis {{ background: linear-gradient(135deg, #DFE6E9 0%, #B2BEC3 100%); padding: 20px; border-radius: 10px; margin: 20px 0; border-left: 5px solid #74B9FF; }}
+    .ai-analysis h3 {{ color: #0984E3; margin-top: 0; font-size: 18px; }}
+    .ai-analysis p {{ color: #2C3E50; margin: 8px 0; }}
+    .footer {{ text-align: center; padding: 20px; background: linear-gradient(135deg, #F8F9FA 0%, #E9ECEF 100%); color: #7F8C8D; font-size: 13px; border-radius: 0 0 15px 15px; }}
+    .button-desc {{ font-size: 12px; margin: 5px 0 15px 0; color: #7F8C8D; text-align: center; }}
+    strong {{ color: #2C3E50; }}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="header">
+<h2>✅ Bekannter Kontakt verarbeitet</h2>
+</div>
+<div class="content">
+<div class="info-box">
+<h3>👤 Kontakt erkannt:</h3>
+<p><strong>{contact_name}</strong>{f" ({company})" if company else ""}</p>
+<p>Von: {from_contact}</p>
+<p><a href="https://cundd.weclapp.com/webapp/view/party/{contact_id}" target="_blank">📋 In WeClapp öffnen</a></p>
+</div>
+<div class="info-box">
+<h3>📝 Nachricht:</h3>
+<p>{body_preview}</p>
+</div>
+<div class="ai-analysis">
+<h3>🤖 KI-Analyse:</h3>
+<p><strong>Absicht:</strong> {ai_analysis.get('intent', 'unbekannt')}</p>
+<p><strong>Dringlichkeit:</strong> {ai_analysis.get('urgency', 'normal')}</p>
+<p><strong>Stimmung:</strong> {ai_analysis.get('sentiment', 'neutral')}</p>
+{attachments_html}
+</div>
+{tasks_html}
+{dashboard_links_html}
+<div class="action-buttons">
+<h3>🎯 Empfohlene Aktionen:</h3>
+{buttons_html}
+</div>
+</div>
+<div class="footer">
+<p>🤖 Automatisch generiert vom C&D Lead Management System</p>
+<p>Kontakt-ID: {contact_id}</p>
+</div>
+</div>
+</body>
+</html>
+"""
+    
     if notification_type == "unknown_contact_action_required":
         # WEG A: Unknown Contact with Action Buttons
         sender = notification_data.get("sender", "Unbekannt")
@@ -774,16 +976,83 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
         logger.info(f"⚠️ Sending UNKNOWN CONTACT notification for {from_contact}")
     
     else:
-        # Standard Notification for known contacts
-        # Add feedback/report option even for successful processing
-        standard_actions = [
-            {
-                "action": "view_in_crm",
-                "label": "📋 IN CRM ÖFFNEN",
-                "description": f"Kontakt in WeClapp öffnen",
-                "contact_id": contact_match.get("contact_id"),
+        # WEG B: Known Contact - Enhanced notification with smart action suggestions
+        ai_analysis = processing_result.get("ai_analysis", {})
+        intent = ai_analysis.get("intent", "")
+        urgency = ai_analysis.get("urgency", "")
+        tasks_generated = processing_result.get("tasks_generated", [])
+        
+        # 🎯 Generate smart action buttons based on AI analysis and intent
+        smart_actions = []
+        
+        # Intent-based smart actions
+        if intent in ["appointment_request", "appointment", "termin", "besichtigung", "aufmaß"]:
+            smart_actions.append({
+                "action": "schedule_appointment",
+                "label": "� TERMIN VEREINBAREN",
+                "description": "Terminvorschläge an Kunde senden und Aufmaß planen",
+                "color": "primary",
                 "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
-            },
+            })
+        
+        if intent in ["quote_request", "price_inquiry", "preisanfrage", "angebot"]:
+            smart_actions.append({
+                "action": "create_quote",
+                "label": "💰 ANGEBOT ERSTELLEN",
+                "description": "Angebot in WeClapp erstellen und an Kunden senden",
+                "color": "success",
+                "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
+            })
+        
+        if intent in ["question", "clarification", "nachfrage", "rückfrage"]:
+            smart_actions.append({
+                "action": "call_customer",
+                "label": "📞 KUNDE ANRUFEN",
+                "description": "Rückruf planen um Fragen zu klären",
+                "color": "info",
+                "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
+            })
+        
+        if intent in ["order", "bestellung", "auftrag"]:
+            smart_actions.append({
+                "action": "create_order",
+                "label": "✅ AUFTRAG ANLEGEN",
+                "description": "Kundenauftrag in WeClapp erstellen",
+                "color": "create",
+                "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
+            })
+        
+        # Urgency-based action
+        if urgency in ["high", "urgent", "hoch"]:
+            smart_actions.append({
+                "action": "urgent_response",
+                "label": "⚡ DRINGEND BEARBEITEN",
+                "description": "Hohe Priorität - Sofortige Bearbeitung erforderlich",
+                "color": "warning",
+                "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
+            })
+        
+        # Default: Always add CRM view option
+        smart_actions.insert(0, {
+            "action": "view_in_crm",
+            "label": "📋 IN CRM ÖFFNEN",
+            "description": f"Kontakt {contact_match.get('contact_name', '')} in WeClapp öffnen",
+            "contact_id": contact_match.get("contact_id"),
+            "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
+        })
+        
+        # Add tasks as action items if generated
+        for task in tasks_generated[:2]:  # Max 2 task buttons
+            smart_actions.append({
+                "action": "complete_task",
+                "label": f"✓ {task.get('title', 'Task')}",
+                "description": task.get('description', ''),
+                "color": "secondary",
+                "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
+            })
+        
+        # Add feedback options
+        smart_actions.extend([
             {
                 "action": "data_good",
                 "label": "✅ DATEN OK",
@@ -795,39 +1064,56 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
                 "label": "⚠️ FEHLER MELDEN",
                 "description": "Daten falsch erkannt, Zuordnung inkorrekt oder Verarbeitungsfehler",
                 "color": "warning"
-            },
-            {
-                "action": "report_issue",
-                "label": "🐛 PROBLEM MELDEN",
-                "description": "Fehlverhalten, falsche Zuordnung oder fehlende Funktion melden",
-                "color": "secondary"
             }
-        ]
+        ])
         
         notification_data = {
-            "notification_type": "standard",
+            "notification_type": "known_contact_enhanced",  # WEG B Enhanced
             "timestamp": now_berlin().isoformat(),
             "channel": message_type,
             "from": from_contact,
             "content_preview": content[:200] + "..." if len(content) > 200 else content,
+            "subject": subject,
+            "body_preview": content[:300] + "..." if len(content) > 300 else content,
             
             # AI Processing Results
             "success": processing_result.get("success", False),
             "workflow_path": processing_result.get("workflow_path"),
             "contact_match": contact_match,
-            "ai_analysis": processing_result.get("ai_analysis", {}),
-            "tasks_generated": processing_result.get("tasks_generated", []),
+            "ai_analysis": ai_analysis,
+            "tasks_generated": tasks_generated,
             "processing_complete": processing_result.get("processing_complete", False),
             
-            # Action buttons (including feedback)
-            "action_options": standard_actions,
+            # ✨ Dashboard IDs (like WEG A)
+            "invoice_id": processing_result.get("invoice_id"),
+            "invoice_number": processing_result.get("invoice_number"),
+            "opportunity_id": processing_result.get("opportunity_id"),
+            "opportunity_title": processing_result.get("opportunity_title", subject),
+            
+            # ☁️ OneDrive Links (collect from all attachments)
+            "onedrive_links": [
+                {
+                    "filename": att.get("filename"),
+                    "sharing_link": att.get("onedrive_sharing_link"),
+                    "web_url": att.get("onedrive_web_url")
+                }
+                for att in processing_result.get("attachment_results", [])
+                if att.get("onedrive_sharing_link") or att.get("onedrive_web_url")
+            ],
+            
+            # 📎 Attachment Info
+            "attachments_count": processing_result.get("attachments_count", 0),
+            "has_attachments": processing_result.get("has_attachments", False),
+            
+            # 🎯 Smart Action buttons (context-aware)
+            "action_options": smart_actions,
             
             # Email Recipients
             "recipients": ["mj@cdtechnologies.de", "info@cdtechnologies.de"],
             
             # Notification Details
-            "subject": f"🤖 C&D AI: {message_type.upper()} von {contact_match.get('contact_name', from_contact)}",
-            "summary": f"AI hat {len(processing_result.get('tasks_generated', []))} Tasks erstellt"
+            "subject": f"✅ C&D AI: {message_type.upper()} von {contact_match.get('contact_name', from_contact)}",
+            "summary": f"AI hat Kontakt verarbeitet und {len(tasks_generated)} Tasks erstellt"
         }
         
         # 🎨 Generate complete HTML for email
