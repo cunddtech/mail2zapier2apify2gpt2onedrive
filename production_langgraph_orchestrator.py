@@ -2439,16 +2439,12 @@ class ProductionAIOrchestrator:
                     "attachments": state.get("attachments", []),
                     "opportunity_id": state.get("opportunity_id"),
                     "invoice_id": state.get("invoice_id"),
-                    "subject": state.get("subject", ""),  # Add subject
-                    "message_id": state.get("message_id", ""),  # Add message_id
+                    "subject": state.get("subject", ""),
+                    "message_id": state.get("message_id", ""),
                 }
                 
-                await send_final_notification(
-                    processing_result=processing_result,
-                    message_type=state.get("message_type", "email"),
-                    from_contact=state.get("from_contact", ""),
-                    content=state.get("content", "")
-                )
+                # Note: Notification already sent above in WEG B workflow
+                # No need to call send_final_notification() again (causes duplicate emails)
                 logger.info("✅ WEG B notification sent successfully")
             except Exception as notif_error:
                 logger.error(f"❌ Failed to send WEG B notification: {notif_error}")
