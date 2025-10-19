@@ -3480,27 +3480,27 @@ async def process_email_incoming(request: Request):
             
             # 🎯 NEW: Extract document_type_hint from Zapier (Multi-Zap Strategy)
             document_type_hint = data.get("document_type_hint")
-        priority = data.get("priority", "medium")
-        
-        # ⚡ IMMEDIATE RESPONSE - No logging before response!
-        # Fire-and-forget background task
-        import asyncio
-        asyncio.create_task(process_email_background(
-            data, message_id, user_email, 
-            document_type_hint=document_type_hint,
-            priority=priority
-        ))
-        
-        # Return immediately (< 1 second)
-        return JSONResponse(
-            status_code=200,
-            content={
-                "status": "accepted",
-                "message_id": message_id,
-                "direction": "incoming"
-            }
-        )
-        
+            priority = data.get("priority", "medium")
+            
+            # ⚡ IMMEDIATE RESPONSE - No logging before response!
+            # Fire-and-forget background task
+            import asyncio
+            asyncio.create_task(process_email_background(
+                data, message_id, user_email, 
+                document_type_hint=document_type_hint,
+                priority=priority
+            ))
+            
+            # Return immediately (< 1 second)
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "status": "accepted",
+                    "message_id": message_id,
+                    "direction": "incoming"
+                }
+            )
+            
         except Exception as e:
             # Even errors return fast
             return JSONResponse(
