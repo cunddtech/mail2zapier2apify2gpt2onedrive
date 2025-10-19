@@ -1115,9 +1115,8 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
             # 🎯 Smart Action buttons (context-aware)
             "action_options": smart_actions,
             
-            # Email Recipients (Zapier Outlook format)
-            "recipients": ["mj@cdtechnologies.de", "info@cdtechnologies.de"],
-            "to": "mj@cdtechnologies.de, info@cdtechnologies.de",  # Zapier Outlook format
+            # Email Recipients (Zapier Outlook format - only "to" field needed)
+            "to": "mj@cdtechnologies.de, info@cdtechnologies.de",
             
             # Notification Details
             "subject": f"✅ C&D AI: {message_type.upper()} von {contact_match.get('contact_name', from_contact)}",
