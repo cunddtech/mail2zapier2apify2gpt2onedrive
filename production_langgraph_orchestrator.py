@@ -1120,6 +1120,7 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
             "to": "mj@cdtechnologies.de, info@cdtechnologies.de",
             
             # Notification Details
+            "notification_subject": f"✅ C&D AI: {message_type.upper()} von {contact_match.get('contact_name', from_contact)}",
             "subject": f"✅ C&D AI: {message_type.upper()} von {contact_match.get('contact_name', from_contact)}",
             "summary": f"AI hat Kontakt verarbeitet und {len(tasks_generated)} Tasks erstellt"
         }
