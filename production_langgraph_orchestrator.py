@@ -58,6 +58,12 @@ import logging
 # SQLite Database für Contact Cache
 import sqlite3
 import asyncio
+from asyncio import Semaphore
+
+# 🔒 Global request limiter to prevent memory overload
+# Max 3 concurrent heavy operations (GPT-4, PDF processing, etc.)
+REQUEST_SEMAPHORE = Semaphore(3)
+active_requests = 0
 from contextlib import asynccontextmanager
 import requests
 
@@ -3459,14 +3465,21 @@ async def process_email_incoming(request: Request):
     }
     """
     
-    try:
-        data = await request.json()
-        data["email_direction"] = "incoming"  # Mark as incoming
-        message_id = data.get("message_id") or data.get("id")
-        user_email = data.get("user_email") or data.get("mailbox") or data.get("recipient")
+    global active_requests
+    
+    # 🔒 Memory protection: Limit concurrent requests
+    async with REQUEST_SEMAPHORE:
+        active_requests += 1
+        logger.info(f"🔒 Processing email (active requests: {active_requests}/{REQUEST_SEMAPHORE._value + 1})")
         
-        # 🎯 NEW: Extract document_type_hint from Zapier (Multi-Zap Strategy)
-        document_type_hint = data.get("document_type_hint")
+        try:
+            data = await request.json()
+            data["email_direction"] = "incoming"  # Mark as incoming
+            message_id = data.get("message_id") or data.get("id")
+            user_email = data.get("user_email") or data.get("mailbox") or data.get("recipient")
+            
+            # 🎯 NEW: Extract document_type_hint from Zapier (Multi-Zap Strategy)
+            document_type_hint = data.get("document_type_hint")
         priority = data.get("priority", "medium")
         
         # ⚡ IMMEDIATE RESPONSE - No logging before response!
@@ -3488,12 +3501,15 @@ async def process_email_incoming(request: Request):
             }
         )
         
-    except Exception as e:
-        # Even errors return fast
-        return JSONResponse(
-            status_code=200,
-            content={"status": "error", "error": str(e)}
-        )
+        except Exception as e:
+            # Even errors return fast
+            return JSONResponse(
+                status_code=200,
+                content={"status": "error", "error": str(e)}
+            )
+        finally:
+            active_requests -= 1
+            logger.info(f"🔓 Email processing complete (active requests: {active_requests})")
 
 @app.post("/webhook/ai-email/outgoing")
 async def process_email_outgoing(request: Request):

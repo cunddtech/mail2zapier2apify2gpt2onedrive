@@ -1,0 +1,25 @@
+{
+  "scenario": "multi_attachment",
+  "timestamp": "2025-10-19T11:50:34.892688",
+  "total_tests": 2,
+  "successful": 1,
+  "results": [
+    {
+      "status": "success",
+      "http_code": 200,
+      "response": {
+        "status": "accepted",
+        "message_id": "AAMkADc0YjBhN2ZiLWZkNjMtNGJhMS05MjYzLTc3Y2Y4ZDhmZjFiOQBGAAAAAAAVwACCXfsPQKVfCESLr6WXBwCQXG1z6jMYS7RJXbSe6B9hAAAAAAFiAACQXG1z6jMYS7RJXbSe6B9hAAQwoZAlAAA=",
+        "direction": "incoming"
+      },
+      "subject": "subreport profi: Ihre aktuelle Trefferliste \"Profil subreport\" vom 17.10.2025",
+      "scenario": "multi_attachment"
+    },
+    {
+      "status": "error",
+      "error": "HTTPSConnectionPool(host='my-langgraph-agent-production.up.railway.app', port=443): Read timed out. (read timeout=5)",
+      "subject": "subreport profi: Ihre aktuelle Trefferliste \"Profil subreport\" vom 17.10.2025",
+      "scenario": "multi_attachment"
+    }
+  ]
+}

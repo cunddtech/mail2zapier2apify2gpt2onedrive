@@ -1,0 +1,63 @@
+{
+  "scenario": "general",
+  "timestamp": "2025-10-19T11:50:16.963319",
+  "total_tests": 5,
+  "successful": 5,
+  "results": [
+    {
+      "status": "success",
+      "http_code": 200,
+      "response": {
+        "status": "accepted",
+        "message_id": "AAMkADc0YjBhN2ZiLWZkNjMtNGJhMS05MjYzLTc3Y2Y4ZDhmZjFiOQBGAAAAAAAVwACCXfsPQKVfCESLr6WXBwCQXG1z6jMYS7RJXbSe6B9hAAAAAAFiAACQXG1z6jMYS7RJXbSe6B9hAAQxwZv3AAA=",
+        "direction": "incoming"
+      },
+      "subject": "Informationen über die Bestellung 564148167",
+      "scenario": "general"
+    },
+    {
+      "status": "success",
+      "http_code": 200,
+      "response": {
+        "status": "accepted",
+        "message_id": "AAMkADc0YjBhN2ZiLWZkNjMtNGJhMS05MjYzLTc3Y2Y4ZDhmZjFiOQBGAAAAAAAVwACCXfsPQKVfCESLr6WXBwCQXG1z6jMYS7RJXbSe6B9hAAAAAAEMAACQXG1z6jMYS7RJXbSe6B9hAAQxwYxTAAA=",
+        "direction": "incoming"
+      },
+      "subject": "Informationen über die Bestellung 564148167",
+      "scenario": "general"
+    },
+    {
+      "status": "success",
+      "http_code": 200,
+      "response": {
+        "status": "accepted",
+        "message_id": "AAMkADc0YjBhN2ZiLWZkNjMtNGJhMS05MjYzLTc3Y2Y4ZDhmZjFiOQBGAAAAAAAVwACCXfsPQKVfCESLr6WXBwCQXG1z6jMYS7RJXbSe6B9hAAAAAAFiAACQXG1z6jMYS7RJXbSe6B9hAAQxW3WeAAA=",
+        "direction": "incoming"
+      },
+      "subject": "Anfrage Dachausbau",
+      "scenario": "general"
+    },
+    {
+      "status": "success",
+      "http_code": 200,
+      "response": {
+        "status": "accepted",
+        "message_id": "AAMkADc0YjBhN2ZiLWZkNjMtNGJhMS05MjYzLTc3Y2Y4ZDhmZjFiOQBGAAAAAAAVwACCXfsPQKVfCESLr6WXBwCQXG1z6jMYS7RJXbSe6B9hAAAAAAEMAACQXG1z6jMYS7RJXbSe6B9hAAQxW2njAAA=",
+        "direction": "incoming"
+      },
+      "subject": "Anfrage Dachausbau",
+      "scenario": "general"
+    },
+    {
+      "status": "success",
+      "http_code": 200,
+      "response": {
+        "status": "accepted",
+        "message_id": "AAMkADc0YjBhN2ZiLWZkNjMtNGJhMS05MjYzLTc3Y2Y4ZDhmZjFiOQBGAAAAAAAVwACCXfsPQKVfCESLr6WXBwCQXG1z6jMYS7RJXbSe6B9hAAAAAAFiAACQXG1z6jMYS7RJXbSe6B9hAAQv97L1AAA=",
+        "direction": "incoming"
+      },
+      "subject": "Rückfrage Kunde Eurodoor zu losem PE-Stecker...., siehe Foto 3 in Anlage  //  BV Feuerwehr Kandel",
+      "scenario": "general"
+    }
+  ]
+}

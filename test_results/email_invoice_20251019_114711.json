@@ -1,0 +1,63 @@
+{
+  "scenario": "invoice",
+  "timestamp": "2025-10-19T11:47:11.990990",
+  "total_tests": 5,
+  "successful": 5,
+  "results": [
+    {
+      "status": "success",
+      "http_code": 200,
+      "response": {
+        "status": "accepted",
+        "message_id": "AAMkADc0YjBhN2ZiLWZkNjMtNGJhMS05MjYzLTc3Y2Y4ZDhmZjFiOQBGAAAAAAAVwACCXfsPQKVfCESLr6WXBwCQXG1z6jMYS7RJXbSe6B9hAAAAAAFiAACQXG1z6jMYS7RJXbSe6B9hAAQwoZBGAAA=",
+        "direction": "incoming"
+      },
+      "subject": "Fwd: Ihre Rechnung 017",
+      "scenario": "invoice"
+    },
+    {
+      "status": "success",
+      "http_code": 200,
+      "response": {
+        "status": "accepted",
+        "message_id": "AAMkADc0YjBhN2ZiLWZkNjMtNGJhMS05MjYzLTc3Y2Y4ZDhmZjFiOQBGAAAAAAAVwACCXfsPQKVfCESLr6WXBwCQXG1z6jMYS7RJXbSe6B9hAAAAAAEMAACQXG1z6jMYS7RJXbSe6B9hAAQwoYxbAAA=",
+        "direction": "incoming"
+      },
+      "subject": "Fwd: Ihre Rechnung 017",
+      "scenario": "invoice"
+    },
+    {
+      "status": "success",
+      "http_code": 200,
+      "response": {
+        "status": "accepted",
+        "message_id": "AAMkADc0YjBhN2ZiLWZkNjMtNGJhMS05MjYzLTc3Y2Y4ZDhmZjFiOQBGAAAAAAAVwACCXfsPQKVfCESLr6WXBwCQXG1z6jMYS7RJXbSe6B9hAAAAAAFiAACQXG1z6jMYS7RJXbSe6B9hAAQwoZBDAAA=",
+        "direction": "incoming"
+      },
+      "subject": "Rechnung 56084007",
+      "scenario": "invoice"
+    },
+    {
+      "status": "success",
+      "http_code": 200,
+      "response": {
+        "status": "accepted",
+        "message_id": "AAMkADc0YjBhN2ZiLWZkNjMtNGJhMS05MjYzLTc3Y2Y4ZDhmZjFiOQBGAAAAAAAVwACCXfsPQKVfCESLr6WXBwCQXG1z6jMYS7RJXbSe6B9hAAAAAAEMAACQXG1z6jMYS7RJXbSe6B9hAAQwoYxYAAA=",
+        "direction": "incoming"
+      },
+      "subject": "Rechnung 56084007",
+      "scenario": "invoice"
+    },
+    {
+      "status": "success",
+      "http_code": 200,
+      "response": {
+        "status": "accepted",
+        "message_id": "AAMkADc0YjBhN2ZiLWZkNjMtNGJhMS05MjYzLTc3Y2Y4ZDhmZjFiOQBGAAAAAAAVwACCXfsPQKVfCESLr6WXBwCQXG1z6jMYS7RJXbSe6B9hAAAAAAFiAACQXG1z6jMYS7RJXbSe6B9hAAQwoZBCAAA=",
+        "direction": "incoming"
+      },
+      "subject": "Rechnung 56084006",
+      "scenario": "invoice"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "scenario": "multi_attachment",
+  "timestamp": "2025-10-19T11:48:03.339752",
+  "total_tests": 2,
+  "successful": 0,
+  "results": [
+    {
+      "status": "error",
+      "error": "HTTPSConnectionPool(host='my-langgraph-agent-production.up.railway.app', port=443): Read timed out. (read timeout=5)",
+      "subject": "subreport profi: Ihre aktuelle Trefferliste \"Profil subreport\" vom 17.10.2025",
+      "scenario": "multi_attachment"
+    },
+    {
+      "status": "error",
+      "error": "HTTPSConnectionPool(host='my-langgraph-agent-production.up.railway.app', port=443): Read timed out. (read timeout=5)",
+      "subject": "subreport profi: Ihre aktuelle Trefferliste \"Profil subreport\" vom 17.10.2025",
+      "scenario": "multi_attachment"
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "scenario": "order_confirmation",
+  "timestamp": "2025-10-19T11:47:16.184104",
+  "total_tests": 5,
+  "successful": 5,
+  "results": [
+    {
+      "status": "success",
+      "http_code": 200,
+      "response": {
+        "status": "accepted",
+        "message_id": "AAMkADc0YjBhN2ZiLWZkNjMtNGJhMS05MjYzLTc3Y2Y4ZDhmZjFiOQBGAAAAAAAVwACCXfsPQKVfCESLr6WXBwCQXG1z6jMYS7RJXbSe6B9hAAAAAAFiAACQXG1z6jMYS7RJXbSe6B9hAAQv97MHAAA=",
+        "direction": "incoming"
+      },
+      "subject": "Auftragsbestätigung 36077229 zu ihre Reklamation BV Schneider",
+      "scenario": "order_confirmation"
+    },
+    {
+      "status": "success",
+      "http_code": 200,
+      "response": {
+        "status": "accepted",
+        "message_id": "AAMkADc0YjBhN2ZiLWZkNjMtNGJhMS05MjYzLTc3Y2Y4ZDhmZjFiOQBGAAAAAAAVwACCXfsPQKVfCESLr6WXBwCQXG1z6jMYS7RJXbSe6B9hAAAAAAEMAACQXG1z6jMYS7RJXbSe6B9hAAQv96dMAAA=",
+        "direction": "incoming"
+      },
+      "subject": "Auftragsbestätigung 36077229 zu ihre Reklamation BV Schneider",
+      "scenario": "order_confirmation"
+    },
+    {
+      "status": "success",
+      "http_code": 200,
+      "response": {
+        "status": "accepted",
+        "message_id": "AAMkADc0YjBhN2ZiLWZkNjMtNGJhMS05MjYzLTc3Y2Y4ZDhmZjFiOQBGAAAAAAAVwACCXfsPQKVfCESLr6WXBwCQXG1z6jMYS7RJXbSe6B9hAAAAAAFiAACQXG1z6jMYS7RJXbSe6B9hAAQrVJToAAA=",
+        "direction": "incoming"
+      },
+      "subject": "Ihre Bestellung 564004036 wird gerade verarbeitet",
+      "scenario": "order_confirmation"
+    },
+    {
+      "status": "success",
+      "http_code": 200,
+      "response": {
+        "status": "accepted",
+        "message_id": "AAMkADc0YjBhN2ZiLWZkNjMtNGJhMS05MjYzLTc3Y2Y4ZDhmZjFiOQBGAAAAAAAVwACCXfsPQKVfCESLr6WXBwCQXG1z6jMYS7RJXbSe6B9hAAAAAAEMAACQXG1z6jMYS7RJXbSe6B9hAAQrVIktAAA=",
+        "direction": "incoming"
+      },
+      "subject": "Ihre Bestellung 564004036 wird gerade verarbeitet",
+      "scenario": "order_confirmation"
+    },
+    {
+      "status": "success",
+      "http_code": 200,
+      "response": {
+        "status": "accepted",
+        "message_id": "AAMkADc0YjBhN2ZiLWZkNjMtNGJhMS05MjYzLTc3Y2Y4ZDhmZjFiOQBGAAAAAAAVwACCXfsPQKVfCESLr6WXBwCQXG1z6jMYS7RJXbSe6B9hAAAAAAEJAACQXG1z6jMYS7RJXbSe6B9hAAQhaLXYAAA=",
+        "direction": "incoming"
+      },
+      "subject": "WG: CD GeringBestellung schiefer Boden / Angebot 121629256",
+      "scenario": "order_confirmation"
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "scenario": "general",
+  "timestamp": "2025-10-19T11:47:43.448238",
+  "total_tests": 5,
+  "successful": 0,
+  "results": [
+    {
+      "status": "error",
+      "error": "HTTPSConnectionPool(host='my-langgraph-agent-production.up.railway.app', port=443): Read timed out. (read timeout=5)",
+      "subject": "Informationen über die Bestellung 564148167",
+      "scenario": "general"
+    },
+    {
+      "status": "error",
+      "error": "HTTPSConnectionPool(host='my-langgraph-agent-production.up.railway.app', port=443): Read timed out. (read timeout=5)",
+      "subject": "Informationen über die Bestellung 564148167",
+      "scenario": "general"
+    },
+    {
+      "status": "error",
+      "error": "HTTPSConnectionPool(host='my-langgraph-agent-production.up.railway.app', port=443): Read timed out. (read timeout=5)",
+      "subject": "Anfrage Dachausbau",
+      "scenario": "general"
+    },
+    {
+      "status": "error",
+      "error": "HTTPSConnectionPool(host='my-langgraph-agent-production.up.railway.app', port=443): Read timed out. (read timeout=5)",
+      "subject": "Anfrage Dachausbau",
+      "scenario": "general"
+    },
+    {
+      "status": "error",
+      "error": "HTTPSConnectionPool(host='my-langgraph-agent-production.up.railway.app', port=443): Read timed out. (read timeout=5)",
+      "subject": "Rückfrage Kunde Eurodoor zu losem PE-Stecker...., siehe Foto 3 in Anlage  //  BV Feuerwehr Kandel",
+      "scenario": "general"
+    }
+  ]
+}

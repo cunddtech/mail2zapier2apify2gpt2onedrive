@@ -1,0 +1,38 @@
+{
+  "scenario": "invoice",
+  "timestamp": "2025-10-19T11:49:58.751874",
+  "total_tests": 5,
+  "successful": 0,
+  "results": [
+    {
+      "status": "error",
+      "error": "HTTPSConnectionPool(host='my-langgraph-agent-production.up.railway.app', port=443): Read timed out. (read timeout=5)",
+      "subject": "Fwd: Ihre Rechnung 017",
+      "scenario": "invoice"
+    },
+    {
+      "status": "error",
+      "error": "HTTPSConnectionPool(host='my-langgraph-agent-production.up.railway.app', port=443): Read timed out. (read timeout=5)",
+      "subject": "Fwd: Ihre Rechnung 017",
+      "scenario": "invoice"
+    },
+    {
+      "status": "error",
+      "error": "HTTPSConnectionPool(host='my-langgraph-agent-production.up.railway.app', port=443): Read timed out. (read timeout=5)",
+      "subject": "Rechnung 56084007",
+      "scenario": "invoice"
+    },
+    {
+      "status": "error",
+      "error": "HTTPSConnectionPool(host='my-langgraph-agent-production.up.railway.app', port=443): Read timed out. (read timeout=5)",
+      "subject": "Rechnung 56084007",
+      "scenario": "invoice"
+    },
+    {
+      "status": "error",
+      "error": "HTTPSConnectionPool(host='my-langgraph-agent-production.up.railway.app', port=443): Read timed out. (read timeout=5)",
+      "subject": "Rechnung 56084006",
+      "scenario": "invoice"
+    }
+  ]
+}
