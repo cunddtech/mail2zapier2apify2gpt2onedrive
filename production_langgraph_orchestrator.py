@@ -1021,11 +1021,48 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
             })
         
         if intent in ["order", "bestellung", "auftrag"]:
+            # Hauptauftrag anlegen
             smart_actions.append({
                 "action": "create_order",
                 "label": "✅ AUFTRAG ANLEGEN",
                 "description": "Kundenauftrag in WeClapp erstellen",
                 "color": "create",
+                "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
+            })
+            
+            # Bestellung beim Lieferanten
+            smart_actions.append({
+                "action": "order_supplier",
+                "label": "📦 LIEFERANT BESTELLEN",
+                "description": "Material beim Lieferanten bestellen",
+                "color": "info",
+                "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
+            })
+            
+            # Auftragsbestätigung
+            smart_actions.append({
+                "action": "send_order_confirmation",
+                "label": "📄 AB VERSENDEN",
+                "description": "Auftragsbestätigung an Kunden senden",
+                "color": "primary",
+                "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
+            })
+            
+            # Anzahlungsrechnung
+            smart_actions.append({
+                "action": "create_advance_invoice",
+                "label": "💶 ANZAHLUNGSRECHNUNG",
+                "description": "Anzahlungsrechnung erstellen (30-50%)",
+                "color": "success",
+                "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
+            })
+            
+            # Montagetermin
+            smart_actions.append({
+                "action": "schedule_installation",
+                "label": "🔧 MONTAGE TERMINIEREN",
+                "description": "Montagetermin mit Kunde vereinbaren",
+                "color": "warning",
                 "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
             })
         
