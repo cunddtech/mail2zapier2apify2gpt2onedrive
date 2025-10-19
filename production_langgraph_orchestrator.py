@@ -341,6 +341,57 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
             <p class="button-desc">{description}</p>
             """
         
+        # ✨ Build Dashboard Links HTML (Invoice DB, Sales Pipeline, OneDrive)
+        dashboard_links_html = ""
+        invoice_id = notification_data.get("invoice_id")
+        opportunity_id = notification_data.get("opportunity_id")
+        onedrive_links = notification_data.get("onedrive_links", [])
+        
+        dashboard_items = []
+        
+        # Invoice Link
+        if invoice_id:
+            invoice_number = notification_data.get("invoice_number", invoice_id)
+            dashboard_items.append(
+                f"📄 <a href='https://my-langgraph-agent-production.up.railway.app/api/invoice/{invoice_number}' target='_blank'>Rechnung #{invoice_number} im System anzeigen</a>"
+            )
+        
+        # Opportunity Link
+        if opportunity_id:
+            opportunity_title = notification_data.get("opportunity_title", f"Opportunity #{opportunity_id}")
+            dashboard_items.append(
+                f"💼 <a href='https://my-langgraph-agent-production.up.railway.app/api/opportunity/{opportunity_id}' target='_blank'>Verkaufschance anzeigen: {opportunity_title}</a>"
+            )
+        
+        # OneDrive Links
+        if onedrive_links:
+            for link_data in onedrive_links:
+                filename = link_data.get("filename", "Datei")
+                sharing_link = link_data.get("sharing_link")
+                if sharing_link:
+                    dashboard_items.append(
+                        f"☁️ <a href='{sharing_link}' target='_blank'>{filename} in OneDrive öffnen</a>"
+                    )
+        
+        # Dashboard Overview Links
+        dashboard_items.append(
+            "📊 <a href='http://localhost:3000' target='_blank'>Invoice & Payment Dashboard öffnen</a>"
+        )
+        dashboard_items.append(
+            "💰 <a href='http://localhost:3000/sales-pipeline' target='_blank'>Sales Pipeline Dashboard öffnen</a>"
+        )
+        
+        if dashboard_items:
+            items_html = "<br>".join([f"&nbsp;&nbsp;&nbsp;&nbsp;{item}" for item in dashboard_items])
+            dashboard_links_html = f"""
+<div class="info-box" style="background: linear-gradient(135deg, #E8F5E9 0%, #C8E6C9 100%); border-left: 5px solid #66BB6A;">
+<h3>🔗 Relevante Links:</h3>
+<p>
+{items_html}
+</p>
+</div>
+"""
+        
         html = f"""
 <!DOCTYPE html>
 <html>
@@ -409,6 +460,7 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
 {attachments_html}
 </div>
 {price_estimate_html}
+{dashboard_links_html}
 <div class="action-buttons">
 <h3>👆 Wähle eine Aktion:</h3>
 {buttons_html}
@@ -684,6 +736,23 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
             # 💰 Price Estimate (if available for calls)
             "price_estimate": processing_result.get("price_estimate"),
             "has_price_estimate": processing_result.get("price_estimate", {}).get("found", False) if processing_result.get("price_estimate") else False,
+            
+            # ✨ Invoice & Opportunity IDs (for Dashboard links)
+            "invoice_id": processing_result.get("invoice_id"),
+            "invoice_number": processing_result.get("invoice_number"),
+            "opportunity_id": processing_result.get("opportunity_id"),
+            "opportunity_title": processing_result.get("opportunity_title", subject),
+            
+            # ☁️ OneDrive Links (collect from all attachments)
+            "onedrive_links": [
+                {
+                    "filename": att.get("filename"),
+                    "sharing_link": att.get("onedrive_sharing_link"),
+                    "web_url": att.get("onedrive_web_url")
+                }
+                for att in processing_result.get("attachment_results", [])
+                if att.get("onedrive_sharing_link") or att.get("onedrive_web_url")
+            ],
             
             "responsible_employee": "mj@cdtechnologies.de",
             "webhook_reply_url": "https://my-langgraph-agent-production.up.railway.app/webhook/contact-action"
@@ -2759,6 +2828,23 @@ Antworten Sie mit den erforderlichen Kontakt-Details oder markieren Sie als "Pri
             # Get additional_data from final_state (it flows through the workflow)
             state_additional_data = final_state.get("additional_data", {})
             
+            # 📊 Extract invoice_id and opportunity_id from attachment_results for dashboard links
+            attachment_results = state_additional_data.get("attachment_results", [])
+            invoice_id = None
+            invoice_number = None
+            opportunity_id = None
+            opportunity_title = None
+            
+            for att_result in attachment_results:
+                # Get first invoice_id found
+                if not invoice_id and att_result.get("invoice_id"):
+                    invoice_id = att_result.get("invoice_id")
+                    invoice_number = att_result.get("invoice_number", invoice_id)
+                # Get first opportunity_id found
+                if not opportunity_id and att_result.get("opportunity_id"):
+                    opportunity_id = att_result.get("opportunity_id")
+                    opportunity_title = att_result.get("opportunity_title")
+            
             processing_result = {
                 "success": True,
                 "workflow_path": final_state.get("workflow_path"),
@@ -2770,9 +2856,14 @@ Antworten Sie mit den erforderlichen Kontakt-Details oder markieren Sie als "Pri
                 # Attachment info from state's additional_data
                 "attachments_count": state_additional_data.get("attachments_count", 0),
                 "has_attachments": state_additional_data.get("has_attachments", False),
-                "attachment_results": state_additional_data.get("attachment_results", []),
+                "attachment_results": attachment_results,
                 # 💰 Price Estimate (if calculated)
                 "price_estimate": final_state.get("price_estimate"),
+                # 📊 Dashboard IDs (extracted from attachment processing)
+                "invoice_id": invoice_id,
+                "invoice_number": invoice_number,
+                "opportunity_id": opportunity_id,
+                "opportunity_title": opportunity_title,
                 # 📊 DETAILED PROCESSING INFO (for debugging/monitoring)
                 "processing_details": {
                     "timestamp": final_state.get("timestamp"),
