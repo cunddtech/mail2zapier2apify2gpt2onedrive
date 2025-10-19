@@ -2427,7 +2427,23 @@ class ProductionAIOrchestrator:
             # 📧 SEND WEG B NOTIFICATION EMAIL
             logger.info("📧 Generating WEG B employee notification")
             try:
-                await self._send_employee_notification(state, workflow_type="WEG_B")
+                # Build processing_result for notification
+                processing_result = {
+                    "workflow_type": "WEG_B",
+                    "contact_match": state.get("contact_match", {}),
+                    "ai_analysis": state.get("ai_analysis", {}),
+                    "tasks_generated": state.get("tasks_generated", []),
+                    "attachments": state.get("attachments", []),
+                    "opportunity_id": state.get("opportunity_id"),
+                    "invoice_id": state.get("invoice_id")
+                }
+                
+                await send_final_notification(
+                    processing_result=processing_result,
+                    message_type=state.get("message_type", "email"),
+                    from_contact=state.get("from_contact", ""),
+                    content=state.get("content", "")
+                )
                 logger.info("✅ WEG B notification sent successfully")
             except Exception as notif_error:
                 logger.error(f"❌ Failed to send WEG B notification: {notif_error}")
