@@ -1115,7 +1115,8 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
             # 🎯 Smart Action buttons (context-aware)
             "action_options": smart_actions,
             
-            # Email Recipients (Zapier Outlook format - only "to" field needed)
+            # Email Recipients (Zapier Outlook format)
+            "responsible_employee": "mj@cdtechnologies.de",
             "to": "mj@cdtechnologies.de, info@cdtechnologies.de",
             
             # Notification Details
