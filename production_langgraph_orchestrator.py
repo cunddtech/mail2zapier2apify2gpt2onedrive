@@ -963,6 +963,7 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
             ],
             
             "responsible_employee": "mj@cdtechnologies.de",
+            "to": "mj@cdtechnologies.de, info@cdtechnologies.de",  # Zapier Outlook format
             "webhook_reply_url": "https://my-langgraph-agent-production.up.railway.app/webhook/contact-action"
         }
         
@@ -1114,8 +1115,9 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
             # 🎯 Smart Action buttons (context-aware)
             "action_options": smart_actions,
             
-            # Email Recipients
+            # Email Recipients (Zapier Outlook format)
             "recipients": ["mj@cdtechnologies.de", "info@cdtechnologies.de"],
+            "to": "mj@cdtechnologies.de, info@cdtechnologies.de",  # Zapier Outlook format
             
             # Notification Details
             "subject": f"✅ C&D AI: {message_type.upper()} von {contact_match.get('contact_name', from_contact)}",
