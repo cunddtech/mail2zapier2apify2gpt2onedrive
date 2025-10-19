@@ -2435,7 +2435,9 @@ class ProductionAIOrchestrator:
                     "tasks_generated": state.get("tasks_generated", []),
                     "attachments": state.get("attachments", []),
                     "opportunity_id": state.get("opportunity_id"),
-                    "invoice_id": state.get("invoice_id")
+                    "invoice_id": state.get("invoice_id"),
+                    "subject": state.get("subject", ""),  # Add subject
+                    "message_id": state.get("message_id", ""),  # Add message_id
                 }
                 
                 await send_final_notification(
@@ -2447,6 +2449,8 @@ class ProductionAIOrchestrator:
                 logger.info("✅ WEG B notification sent successfully")
             except Exception as notif_error:
                 logger.error(f"❌ Failed to send WEG B notification: {notif_error}")
+                import traceback
+                logger.error(f"   Traceback: {traceback.format_exc()}")
                 # Don't fail the whole workflow if notification fails
             
             # Automatic response if needed
