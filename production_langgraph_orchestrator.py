@@ -2397,6 +2397,7 @@ class ProductionAIOrchestrator:
         
         try:
             contact_id = state["contact_match"]["contact_id"]
+            contact_name = state["contact_match"].get("contact_name", "Unbekannt")
             
             # Update contact communication log
             await self._update_contact_communication_log(contact_id, state)
@@ -2422,6 +2423,15 @@ class ProductionAIOrchestrator:
                 await self._create_crm_task(task)
             
             state["tasks_generated"] = [self._task_to_dict(task) for task in tasks]
+            
+            # 📧 SEND WEG B NOTIFICATION EMAIL
+            logger.info("📧 Generating WEG B employee notification")
+            try:
+                await self._send_employee_notification(state, workflow_type="WEG_B")
+                logger.info("✅ WEG B notification sent successfully")
+            except Exception as notif_error:
+                logger.error(f"❌ Failed to send WEG B notification: {notif_error}")
+                # Don't fail the whole workflow if notification fails
             
             # Automatic response if needed
             if ai_analysis.get("response_needed"):
