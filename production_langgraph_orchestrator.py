@@ -3577,6 +3577,69 @@ async def process_attachment_ocr(
                                                             except Exception as db_error:
                                                                 logger.warning(f"   ⚠️ Invoice DB save failed: {db_error}")
                                                         
+                                                        # ✨ PHASE 3.5: Create Sales Opportunity for Preisanfragen/Angebote
+                                                        doc_type = result["structured"].get("document_type", "").lower()
+                                                        if any(keyword in doc_type for keyword in ["preisanfrage", "angebot", "anfrage", "quote", "proposal", "inquiry"]):
+                                                            try:
+                                                                from modules.database.sales_pipeline_db import create_opportunity
+                                                                
+                                                                # Determine stage and probability based on document type
+                                                                if "angebot" in doc_type or "quote" in doc_type or "proposal" in doc_type:
+                                                                    stage = "proposal"
+                                                                    probability = 50
+                                                                elif "preisanfrage" in doc_type or "anfrage" in doc_type or "inquiry" in doc_type:
+                                                                    stage = "lead"
+                                                                    probability = 20
+                                                                else:
+                                                                    stage = "qualified"
+                                                                    probability = 30
+                                                                
+                                                                # Extract contact info from email or document
+                                                                contact_name = None
+                                                                contact_email = None
+                                                                company_name = None
+                                                                
+                                                                if email_data:
+                                                                    sender = email_data.get("sender", {})
+                                                                    contact_email = sender.get("emailAddress", {}).get("address")
+                                                                    contact_name = sender.get("emailAddress", {}).get("name")
+                                                                
+                                                                # Try to extract from GPT analysis
+                                                                if not contact_name:
+                                                                    contact_name = result["structured"].get("customer_name") or result["structured"].get("vendor_name")
+                                                                if not company_name:
+                                                                    company_name = result["structured"].get("customer_name") or result["structured"].get("vendor_name")
+                                                                
+                                                                # Extract value if available
+                                                                value = result["structured"].get("total_amount")
+                                                                if value:
+                                                                    try:
+                                                                        value = float(value)
+                                                                    except:
+                                                                        value = None
+                                                                
+                                                                # Create opportunity
+                                                                opportunity_data = {
+                                                                    "title": email_data.get("subject", "Unbekannte Anfrage") if email_data else "Unbekannte Anfrage",
+                                                                    "stage": stage,
+                                                                    "value": value,
+                                                                    "probability": probability,
+                                                                    "contact_name": contact_name,
+                                                                    "contact_email": contact_email,
+                                                                    "company_name": company_name,
+                                                                    "source": "email",
+                                                                    "description": result.get("text", "")[:500] if result.get("text") else None,
+                                                                    "email_message_id": email_data.get("message_id") if email_data else None,
+                                                                    "created_by": "ai-orchestrator"
+                                                                }
+                                                                
+                                                                opportunity_id = create_opportunity(opportunity_data)
+                                                                result["opportunity_id"] = opportunity_id
+                                                                logger.info(f"   💼 Opportunity created: ID={opportunity_id}, Stage={stage}")
+                                                                
+                                                            except Exception as opp_error:
+                                                                logger.warning(f"   ⚠️ Opportunity creation failed: {opp_error}")
+                                                        
                                                         
                                                     else:
                                                         logger.warning(f"⚠️ OneDrive upload failed: {upload_response.status_code}")
@@ -4986,6 +5049,209 @@ async def get_invoice_details(invoice_number: str):
     except Exception as e:
         logger.error(f"❌ Invoice details error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch invoice: {str(e)}")
+
+
+# ===============================
+# 💼 SALES PIPELINE API ENDPOINTS
+# ===============================
+
+@app.get("/api/opportunity/statistics")
+async def get_opportunity_statistics():
+    """
+    Get Sales Pipeline Statistics
+    
+    Returns:
+    - Opportunities by stage (lead, qualified, proposal, negotiation)
+    - Won/Lost statistics
+    - Weighted pipeline value
+    """
+    try:
+        from modules.database.sales_pipeline_db import get_pipeline_statistics
+        stats = get_pipeline_statistics()
+        
+        return {
+            "status": "success",
+            "statistics": stats
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Opportunity statistics error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch statistics: {str(e)}")
+
+
+@app.get("/api/opportunity/recent")
+async def get_recent_opportunities_endpoint(limit: int = 20, stage: Optional[str] = None):
+    """
+    Get Recent Opportunities
+    
+    Query Parameters:
+    - limit: Number of opportunities to return (default: 20)
+    - stage: Filter by stage (lead, qualified, proposal, negotiation, won, lost)
+    """
+    try:
+        from modules.database.sales_pipeline_db import get_recent_opportunities
+        opportunities = get_recent_opportunities(limit, stage)
+        
+        return {
+            "status": "success",
+            "opportunities": opportunities,
+            "count": len(opportunities)
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Recent opportunities error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch opportunities: {str(e)}")
+
+
+@app.get("/api/opportunity/{opportunity_id}")
+async def get_opportunity_details(opportunity_id: int):
+    """
+    Get Opportunity Details with Activities
+    
+    Path Parameters:
+    - opportunity_id: Opportunity ID
+    """
+    try:
+        from modules.database.sales_pipeline_db import get_opportunity_by_id
+        opportunity = get_opportunity_by_id(opportunity_id)
+        
+        if not opportunity:
+            raise HTTPException(status_code=404, detail="Opportunity not found")
+        
+        return {
+            "status": "success",
+            "opportunity": opportunity
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Opportunity details error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch opportunity: {str(e)}")
+
+
+@app.post("/api/opportunity")
+async def create_opportunity_endpoint(request: Request):
+    """
+    Create New Opportunity
+    
+    Request Body:
+    {
+        "title": "Dachausbau Projekt",
+        "stage": "lead",
+        "value": 50000.0,
+        "probability": 30,
+        "contact_name": "Max Mustermann",
+        "contact_email": "max@example.com",
+        "company_name": "Mustermann GmbH",
+        "source": "email",
+        "description": "Preisanfrage für Dachausbau"
+    }
+    """
+    try:
+        from modules.database.sales_pipeline_db import create_opportunity
+        data = await request.json()
+        
+        opportunity_id = create_opportunity(data)
+        
+        return {
+            "status": "success",
+            "opportunity_id": opportunity_id,
+            "message": "Opportunity created successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Create opportunity error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create opportunity: {str(e)}")
+
+
+@app.put("/api/opportunity/{opportunity_id}/stage")
+async def update_opportunity_stage_endpoint(opportunity_id: int, request: Request):
+    """
+    Update Opportunity Stage
+    
+    Request Body:
+    {
+        "stage": "qualified",
+        "note": "Telefongespräch geführt, Budget bestätigt"
+    }
+    """
+    try:
+        from modules.database.sales_pipeline_db import update_opportunity_stage
+        data = await request.json()
+        
+        success = update_opportunity_stage(
+            opportunity_id, 
+            data.get("stage"), 
+            data.get("note")
+        )
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Opportunity not found")
+        
+        return {
+            "status": "success",
+            "message": f"Stage updated to {data.get('stage')}"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Update stage error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update stage: {str(e)}")
+
+
+@app.post("/api/opportunity/{opportunity_id}/activity")
+async def add_opportunity_activity(opportunity_id: int, request: Request):
+    """
+    Add Activity to Opportunity
+    
+    Request Body:
+    {
+        "activity_type": "email",
+        "title": "Follow-up Email gesendet",
+        "description": "Angebot zugesandt mit Details",
+        "created_by": "mj@cdtechnologies.de"
+    }
+    """
+    try:
+        from modules.database.sales_pipeline_db import add_activity
+        data = await request.json()
+        
+        activity_id = add_activity(opportunity_id, data)
+        
+        return {
+            "status": "success",
+            "activity_id": activity_id,
+            "message": "Activity added successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Add activity error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to add activity: {str(e)}")
+
+
+@app.get("/api/opportunity/search")
+async def search_opportunities_endpoint(q: str):
+    """
+    Search Opportunities
+    
+    Query Parameters:
+    - q: Search query (searches title, company, contact)
+    """
+    try:
+        from modules.database.sales_pipeline_db import search_opportunities
+        opportunities = search_opportunities(q)
+        
+        return {
+            "status": "success",
+            "opportunities": opportunities,
+            "count": len(opportunities)
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Search opportunities error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to search opportunities: {str(e)}")
 
 
 # ===============================

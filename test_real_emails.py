@@ -30,12 +30,13 @@ ZAPIER_FILTERS = {
         "angebot", "offer", "quote",
         "bestätigung", "confirmation",
         "lieferschein", "delivery note",
-        "mahnung", "reminder", "dunning"
+        "mahnung", "reminder", "dunning",
+        "preis", "anfrage", "price"  # Preisanfrage Keywords
     ],
-    "has_pdf_attachment": True,
-    "min_attachment_size_kb": 10,
-    "days_back": 30,
-    "max_test_emails": 10  # Zurück auf 10 für vollen Test
+    "has_pdf_attachment": False,  # Preisanfrage hat evtl. kein PDF
+    "min_attachment_size_kb": 0,  # Kein Minimum für Preisanfrage
+    "days_back": 1,  # Nur heute
+    "max_test_emails": 1  # 1 Email testen
 }
 
 
@@ -46,8 +47,12 @@ async def fetch_recent_emails(token: str, days: int = 30) -> List[Dict]:
     start_date = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%dT00:00:00Z")
     
     url = f"https://graph.microsoft.com/v1.0/users/{email_address}/messages"
+    
+    # Filter nur mit hasAttachments wenn PDF erforderlich ist
+    attachment_filter = " and hasAttachments eq true" if ZAPIER_FILTERS["has_pdf_attachment"] else ""
+    
     params = {
-        "$filter": f"receivedDateTime ge {start_date} and hasAttachments eq true",
+        "$filter": f"receivedDateTime ge {start_date}{attachment_filter}",
         "$select": "id,subject,from,receivedDateTime,hasAttachments,bodyPreview",
         "$orderby": "receivedDateTime desc",
         "$top": 100
@@ -90,22 +95,23 @@ def filter_emails_zapier_style(emails: List[Dict], attachments_map: Dict) -> Lis
         if not any(kw in subject for kw in ZAPIER_FILTERS["subject_keywords"]):
             continue
         
-        # Filter: PDF-Anhang mit Mindestgröße
+        # Filter: PDF-Anhang mit Mindestgröße (optional)
         email_id = email["id"]
         attachments = attachments_map.get(email_id, [])
         
-        has_valid_pdf = False
-        for att in attachments:
-            name = att.get("name", "").lower()
-            size = att.get("size", 0)
-            content_type = att.get("contentType", "").lower()
+        if ZAPIER_FILTERS["has_pdf_attachment"]:
+            has_valid_pdf = False
+            for att in attachments:
+                name = att.get("name", "").lower()
+                size = att.get("size", 0)
+                content_type = att.get("contentType", "").lower()
+                
+                if ("pdf" in name or "pdf" in content_type) and size >= ZAPIER_FILTERS["min_attachment_size_kb"] * 1024:
+                    has_valid_pdf = True
+                    break
             
-            if ("pdf" in name or "pdf" in content_type) and size >= ZAPIER_FILTERS["min_attachment_size_kb"] * 1024:
-                has_valid_pdf = True
-                break
-        
-        if not has_valid_pdf:
-            continue
+            if not has_valid_pdf:
+                continue
         
         filtered.append({**email, "attachments": attachments})
     

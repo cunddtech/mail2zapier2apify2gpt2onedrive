@@ -65,6 +65,13 @@ export default function Home() {
             </div>
             
             <div className="flex items-center space-x-4">
+              {/* Navigation to Sales Pipeline */}
+              <a
+                href="/sales-pipeline"
+                className="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+              >
+                💼 Sales Pipeline →
+              </a>
               {/* API Status */}
               {apiStatus && (
                 <div className="flex items-center space-x-2">
