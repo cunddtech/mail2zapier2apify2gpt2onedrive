@@ -1094,7 +1094,7 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
             "invoice_id": processing_result.get("invoice_id"),
             "invoice_number": processing_result.get("invoice_number"),
             "opportunity_id": processing_result.get("opportunity_id"),
-            "opportunity_title": processing_result.get("opportunity_title", subject),
+            "opportunity_title": processing_result.get("opportunity_title", processing_result.get("subject", "")),
             
             # ☁️ OneDrive Links (collect from all attachments)
             "onedrive_links": [
