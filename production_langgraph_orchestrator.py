@@ -1079,7 +1079,7 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
             "channel": message_type,
             "from": from_contact,
             "content_preview": content[:200] + "..." if len(content) > 200 else content,
-            "subject": subject,
+            "subject": processing_result.get("subject", ""),
             "body_preview": content[:300] + "..." if len(content) > 300 else content,
             
             # AI Processing Results
