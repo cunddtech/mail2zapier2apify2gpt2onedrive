@@ -1181,6 +1181,11 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
         notification_data["html_body"] = generate_notification_html(notification_data)
         
         logger.info(f"✅ Sending standard notification for known contact: {contact_match.get('contact_name', from_contact)}")
+        
+        # 🔍 DEBUG: Log notification_data fields for Zapier debugging
+        logger.info(f"🔍 DEBUG notification_data keys: {list(notification_data.keys())}")
+        logger.info(f"🔍 DEBUG subject fields: subject='{notification_data.get('subject', 'MISSING')}', email_subject='{notification_data.get('email_subject', 'MISSING')}', outlook_subject='{notification_data.get('outlook_subject', 'MISSING')}'")
+        logger.info(f"🔍 DEBUG action_options count: {len(notification_data.get('action_options', []))}")
     
     try:
         async with aiohttp.ClientSession() as session:
