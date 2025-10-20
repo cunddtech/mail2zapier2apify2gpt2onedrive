@@ -3226,6 +3226,10 @@ Antworten Sie mit den erforderlichen Kontakt-Details oder markieren Sie als "Pri
                 "tasks_generated": final_state.get("tasks_generated", []),
                 "processing_complete": final_state.get("processing_complete", False),
                 "errors": final_state.get("errors", []),
+                # EMAIL METADATA (for keyword override and notifications)
+                "subject": email_data.get("subject", ""),
+                "body": content,
+                "body_preview": content[:300] if content else "",
                 # Attachment info from state's additional_data
                 "attachments_count": state_additional_data.get("attachments_count", 0),
                 "has_attachments": state_additional_data.get("has_attachments", False),
