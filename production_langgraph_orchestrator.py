@@ -964,7 +964,12 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
             
             "responsible_employee": "mj@cdtechnologies.de",
             "to": "mj@cdtechnologies.de, info@cdtechnologies.de",  # Zapier Outlook format
-            "webhook_reply_url": "https://my-langgraph-agent-production.up.railway.app/webhook/contact-action"
+            "webhook_reply_url": "https://my-langgraph-agent-production.up.railway.app/webhook/contact-action",
+            
+            # ZAPIER COMPATIBILITY: Multiple subject fields
+            "email_subject": subject,
+            "outlook_subject": subject,
+            "notification_subject": subject
         }
         
         # 🎨 Generate complete HTML for email
@@ -1164,9 +1169,11 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
             "responsible_employee": "mj@cdtechnologies.de",
             "to": "mj@cdtechnologies.de, info@cdtechnologies.de",
             
-            # Notification Details
+            # Notification Details - MULTIPLE FIELDS FOR ZAPIER COMPATIBILITY
             "notification_subject": f"✅ C&D AI: {message_type.upper()} von {contact_match.get('contact_name', from_contact)}",
             "subject": f"✅ C&D AI: {message_type.upper()} von {contact_match.get('contact_name', from_contact)}",
+            "email_subject": f"✅ C&D AI: {message_type.upper()} von {contact_match.get('contact_name', from_contact)}",
+            "outlook_subject": f"✅ C&D AI: {message_type.upper()} von {contact_match.get('contact_name', from_contact)}",
             "summary": f"AI hat Kontakt verarbeitet und {len(tasks_generated)} Tasks erstellt"
         }
         
