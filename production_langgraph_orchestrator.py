@@ -989,6 +989,14 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
         urgency = ai_analysis.get("urgency", "")
         tasks_generated = processing_result.get("tasks_generated", [])
         
+        # 🎯 Intent Override: Keyword-based intent detection for ORDER
+        subject = processing_result.get("subject", "").lower()
+        body_preview = processing_result.get("body_preview", "").lower() if processing_result.get("body_preview") else ""
+        
+        if any(keyword in subject or keyword in body_preview for keyword in ["auftrag", "bestellung", "order", "bestellen", "material bestellen", "auftragsbestätigung"]):
+            logger.info(f"🎯 INTENT OVERRIDE: Detected ORDER keywords in subject/body, forcing ORDER intent (was: {intent})")
+            intent = "order"
+        
         # 🎯 Generate smart action buttons based on AI analysis and intent
         smart_actions = []
         

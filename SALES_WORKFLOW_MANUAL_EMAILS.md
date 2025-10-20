@@ -114,9 +114,15 @@ Max Mustermann
 ```
 
 **Expected:**
-- ✅ WEG B Notification
-- Smart Action: ✅ AUFTRAG ANLEGEN
-- Smart Action: ⚡ DRINGEND BEARBEITEN (wegen Urgency: high)
+- ✅ WEG B Notification (Grüner Header)
+- **6 Smart Actions für Auftragsabwicklung:**
+  1. 📋 IN CRM ÖFFNEN - Kontakt in WeClapp öffnen
+  2. ✅ AUFTRAG ANLEGEN - Kundenauftrag in WeClapp erstellen
+  3. 📦 LIEFERANT BESTELLEN - Material beim Lieferanten bestellen
+  4. 📄 AB VERSENDEN - Auftragsbestätigung an Kunden senden
+  5. 💶 ANZAHLUNGSRECHNUNG - Anzahlungsrechnung erstellen (30-50%)
+  6. 🔧 MONTAGE TERMINIEREN - Montagetermin mit Kunde vereinbaren
+- Plus: ⚡ DRINGEND BEARBEITEN (falls Urgency: high erkannt)
 - Opportunity Status → "Won" (100%)
 - Invoice erstellt (falls Betrag erkannt)
 
