@@ -1002,20 +1002,55 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
             logger.info(f"🎯 INTENT OVERRIDE: Detected ORDER keywords in subject/body, forcing ORDER intent (was: {intent})")
             intent = "order"
         
+        # 🎯 CHECK WECLAPP OPPORTUNITY STATUS for phase-based Smart Actions
+        opportunity_stage = None
+        opportunity_id = None
+        contact_id = contact_match.get("contact_id")
+        
+        if contact_id:
+            try:
+                from modules.crm.opportunity_status_handler import get_opportunity_by_contact
+                opportunity_data = get_opportunity_by_contact(contact_id)
+                
+                if opportunity_data:
+                    opportunity_stage = opportunity_data.get("salesStage")
+                    opportunity_id = opportunity_data.get("id")
+                    probability = opportunity_data.get("probability")
+                    logger.info(f"📊 Opportunity Status: ID={opportunity_id}, Stage={opportunity_stage}, Probability={probability}%")
+                else:
+                    logger.info(f"ℹ️ No open opportunity found for contact {contact_id}")
+            except Exception as e:
+                logger.error(f"❌ Error fetching opportunity status: {str(e)}")
+        
         # 🎯 Generate smart action buttons based on AI analysis and intent
         smart_actions = []
         
-        # Intent-based smart actions
-        if intent in ["appointment_request", "appointment", "termin", "besichtigung", "aufmaß"]:
+        # 🏆 PRIORITY 1: Use Opportunity Stage if available (most accurate)
+        if opportunity_stage:
+            try:
+                from modules.crm.opportunity_status_handler import get_smart_actions_for_stage
+                stage_actions = get_smart_actions_for_stage(
+                    sales_stage=opportunity_stage,
+                    contact_id=contact_id,
+                    opportunity_id=opportunity_id,
+                    intent=intent
+                )
+                smart_actions.extend(stage_actions)
+                logger.info(f"✅ Using {len(stage_actions)} stage-based smart actions for: {opportunity_stage}")
+            except Exception as e:
+                logger.error(f"❌ Error generating stage-based actions: {str(e)}")
+        
+        # 🥈 PRIORITY 2: Fallback to Intent-based actions if no Opportunity
+        if not smart_actions and intent in ["appointment_request", "appointment", "termin", "besichtigung", "aufmaß"]:
             smart_actions.append({
                 "action": "schedule_appointment",
-                "label": "� TERMIN VEREINBAREN",
+                "label": "📅 TERMIN VEREINBAREN",
                 "description": "Terminvorschläge an Kunde senden und Aufmaß planen",
                 "color": "primary",
                 "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
             })
         
-        if intent in ["quote_request", "price_inquiry", "preisanfrage", "angebot"]:
+        if not smart_actions and intent in ["quote_request", "price_inquiry", "preisanfrage", "angebot"]:
             smart_actions.append({
                 "action": "create_quote",
                 "label": "💰 ANGEBOT ERSTELLEN",
@@ -1024,7 +1059,7 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
                 "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
             })
         
-        if intent in ["question", "clarification", "nachfrage", "rückfrage"]:
+        if not smart_actions and intent in ["question", "clarification", "nachfrage", "rückfrage"]:
             smart_actions.append({
                 "action": "call_customer",
                 "label": "📞 KUNDE ANRUFEN",
@@ -1033,8 +1068,9 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
                 "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
             })
         
-        if intent in ["order", "bestellung", "auftrag"]:
-            # Hauptauftrag anlegen
+        if not smart_actions and intent in ["order", "bestellung", "auftrag"]:
+            # Fallback ORDER actions wenn keine Opportunity gefunden
+            logger.info("ℹ️ Using fallback ORDER actions (no opportunity found)")
             smart_actions.append({
                 "action": "create_order",
                 "label": "✅ AUFTRAG ANLEGEN",
@@ -1043,7 +1079,6 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
                 "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
             })
             
-            # Bestellung beim Lieferanten
             smart_actions.append({
                 "action": "order_supplier",
                 "label": "📦 LIEFERANT BESTELLEN",
@@ -1052,7 +1087,6 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
                 "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
             })
             
-            # Auftragsbestätigung
             smart_actions.append({
                 "action": "send_order_confirmation",
                 "label": "📄 AB VERSENDEN",
@@ -1061,7 +1095,6 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
                 "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
             })
             
-            # Anzahlungsrechnung
             smart_actions.append({
                 "action": "create_advance_invoice",
                 "label": "💶 ANZAHLUNGSRECHNUNG",
@@ -1070,7 +1103,6 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
                 "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
             })
             
-            # Montagetermin
             smart_actions.append({
                 "action": "schedule_installation",
                 "label": "🔧 MONTAGE TERMINIEREN",
@@ -1079,9 +1111,9 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
                 "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
             })
         
-        # Urgency-based action
-        if urgency in ["high", "urgent", "hoch"]:
-            smart_actions.append({
+        # Urgency-based action (zusätzlich zu stage/intent actions)
+        if urgency in ["high", "urgent", "hoch"] and not any(a.get("action") == "urgent_response" for a in smart_actions):
+            smart_actions.insert(0, {
                 "action": "urgent_response",
                 "label": "⚡ DRINGEND BEARBEITEN",
                 "description": "Hohe Priorität - Sofortige Bearbeitung erforderlich",
@@ -1089,14 +1121,16 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
                 "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
             })
         
-        # Default: Always add CRM view option
-        smart_actions.insert(0, {
-            "action": "view_in_crm",
-            "label": "📋 IN CRM ÖFFNEN",
-            "description": f"Kontakt {contact_match.get('contact_name', '')} in WeClapp öffnen",
-            "contact_id": contact_match.get("contact_id"),
-            "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
-        })
+        # Default: "IN CRM ÖFFNEN" nur hinzufügen wenn nicht schon vorhanden
+        if not any(a.get("action") == "view_in_crm" for a in smart_actions):
+            opp_url = f"https://cundd.weclapp.com/webapp/view/opportunity/{opportunity_id}" if opportunity_id else f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
+            smart_actions.append({
+                "action": "view_in_crm",
+                "label": "📋 IN CRM ÖFFNEN",
+                "description": f"{'Opportunity' if opportunity_id else 'Kontakt'} {contact_match.get('contact_name', '')} in WeClapp öffnen",
+                "contact_id": contact_match.get("contact_id"),
+                "url": opp_url
+            })
         
         # Add tasks as action items if generated
         for task in tasks_generated[:2]:  # Max 2 task buttons
