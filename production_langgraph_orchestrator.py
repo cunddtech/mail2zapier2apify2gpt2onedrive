@@ -4278,6 +4278,21 @@ async def process_email_background(
         
         logger.info(f"🔍 DEBUG: Full data keys: {list(data.keys())}")
         
+        # 🚫 LOOP PREVENTION: Ignore system-generated emails
+        from_field = data.get("from", "").lower()
+        subject = data.get("subject", "")
+        
+        # Check if email is from system (our notification sender)
+        if "mj@cdtechnologies.de" in from_field:
+            logger.info(f"🚫 LOOP PREVENTION: Ignoring email from system sender: {from_field}")
+            return
+        
+        # Check if subject contains system markers
+        system_markers = ["C&D AI", "✅", "⚠️", "🔔"]
+        if any(marker in subject for marker in system_markers):
+            logger.info(f"🚫 LOOP PREVENTION: Ignoring email with system marker in subject: {subject}")
+            return
+        
         # If message_id provided → Load full email from Graph API
         if message_id and user_email:
             logger.info(f"🔍 Loading full email via Graph API: message_id={message_id}, mailbox={user_email}")
