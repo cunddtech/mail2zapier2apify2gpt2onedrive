@@ -4282,10 +4282,12 @@ async def process_email_background(
         from_field = data.get("from", "").lower()
         subject = data.get("subject", "")
         
-        # Block system sender
-        if "mj@cdtechnologies.de" in from_field:
-            logger.info(f"🚫 LOOP PREVENTION (PRE-LOAD): Blocking system sender: {from_field}")
-            return
+        # Block system sender (all C&D domains)
+        system_domains = ["@cdtechnologies.de", "@torcentersuedwest.de"]
+        for domain in system_domains:
+            if domain in from_field:
+                logger.info(f"🚫 LOOP PREVENTION (PRE-LOAD): Blocking system domain: {from_field}")
+                return
         
         # Block system markers in subject
         system_markers = ["C&D AI", "✅", "⚠️", "🔔", "(📎"]
@@ -4347,10 +4349,12 @@ async def process_email_background(
             # 🚫 LOOP PREVENTION CHECK #2: After loading real email data from Graph API
             # (Critical: First check runs on Zapier payload, this runs on actual Graph API data)
             
-            # Block system sender
-            if "mj@cdtechnologies.de" in from_address.lower():
-                logger.info(f"🚫 LOOP PREVENTION (POST-LOAD): Blocking system email from {from_address}")
-                return
+            # Block system sender (all C&D domains)
+            system_domains = ["@cdtechnologies.de", "@torcentersuedwest.de"]
+            for domain in system_domains:
+                if domain in from_address.lower():
+                    logger.info(f"🚫 LOOP PREVENTION (POST-LOAD): Blocking system domain: {from_address}")
+                    return
             
             # Block system markers in subject
             system_markers = ["C&D AI", "✅", "⚠️", "🔔", "(📎"]
