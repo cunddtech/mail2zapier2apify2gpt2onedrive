@@ -4345,6 +4345,16 @@ async def process_email_background(
             
             logger.info(f"✅ Email loaded: From={from_address}, Subject={subject}, Attachments={len(attachments)}")
             
+            # 🚫 LOOP PREVENTION CHECK #2: After loading real email data from Graph API
+            if "mj@cdtechnologies.de" in from_address.lower():
+                logger.info(f"🚫 LOOP PREVENTION (POST-LOAD): Blocking system email from {from_address}")
+                return
+            
+            # Check if subject contains "EMAIL:" pattern (forwarded loop)
+            if subject.startswith("EMAIL:") or "EMAIL: EMAIL:" in subject or "(📎" in subject:
+                logger.info(f"🚫 LOOP PREVENTION (POST-LOAD): Blocking forwarded email: {subject[:100]}")
+                return
+            
             # � SCHRITT 1: DUPLIKATPRÜFUNG VOR PROCESSING
             tracking_db = get_email_tracking_db()
             processing_start_time = asyncio.get_event_loop().time()
