@@ -4296,13 +4296,16 @@ async def process_email_background(
         # 🚫 SPAM LOOP PREVENTION: Block marketing/spam emails
         spam_indicators = [
             "EMAIL: EMAIL:",  # Forwarded spam pattern
+            "EMAIL: Ihre empfohlenen",  # Amazon spam pattern
             "wasserspender@",
             "newsletter@",
             "marketing@",
-            "noreply@",
-            "no-reply@",
+            "noreply",  # Catches both noreply@ and no-reply@
+            "no-reply",
             "unsubscribe",
-            "list-unsubscribe"
+            "list-unsubscribe",
+            "@business.amazon",
+            "zeitlich befristeten angeboten"  # Amazon spam specific
         ]
         
         # Check from field and subject for spam indicators
