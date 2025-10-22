@@ -4278,7 +4278,7 @@ async def process_email_background(
         
         logger.info(f"🔍 DEBUG: Full data keys: {list(data.keys())}")
         
-        # 🚫 LOOP PREVENTION: Ignore system-generated emails
+        # 🚫 LOOP PREVENTION: Ignore system-generated emails and spam loops
         from_field = data.get("from", "").lower()
         subject = data.get("subject", "")
         
@@ -4292,6 +4292,25 @@ async def process_email_background(
         if any(marker in subject for marker in system_markers):
             logger.info(f"🚫 LOOP PREVENTION: Ignoring email with system marker in subject: {subject}")
             return
+        
+        # 🚫 SPAM LOOP PREVENTION: Block marketing/spam emails
+        spam_indicators = [
+            "EMAIL: EMAIL:",  # Forwarded spam pattern
+            "wasserspender@",
+            "newsletter@",
+            "marketing@",
+            "noreply@",
+            "no-reply@",
+            "unsubscribe",
+            "list-unsubscribe"
+        ]
+        
+        # Check from field and subject for spam indicators
+        combined_check = from_field + " " + subject.lower()
+        for indicator in spam_indicators:
+            if indicator.lower() in combined_check:
+                logger.info(f"🚫 SPAM LOOP PREVENTION: Blocking marketing/spam email: {indicator}")
+                return
         
         # If message_id provided → Load full email from Graph API
         if message_id and user_email:
