@@ -77,12 +77,14 @@ Name: "Block System Loops"
 
 ```
 === LOOP PATTERN BLOCKS (Subject-based) ===
-✅ Subject | Does not start with | EMAIL:
-   → Blockiert: "EMAIL: Rechnung...", "EMAIL: Angebot..."
+✅ Subject | Does not contain | EMAIL:
+   → Blockiert: ALLE Emails mit "EMAIL:" (Anfang, Mitte, Ende)
+   → Robuster als "Does not start with"
    → Durchlassen: "Rechnung 123", "Angebot für Kunde"
 
 ✅ Subject | Does not contain | EMAIL: EMAIL:
    → Blockiert: "EMAIL: EMAIL: Rechnung..." (double forward)
+   → Extra Sicherheit für mehrfache Forwards
 
 ✅ Subject | Does not contain | (📎
    → Blockiert: "(📎 5): Rechnung..." (Attachment notification)
@@ -104,9 +106,14 @@ Name: "Block System Loops"
    → Blockiert: hooks.zapier.com notifications
 ```
 
-**🎯 LOGIK:**
+**🎯 WICHTIG - GEÄNDERT:**
+- ❌ ~~"Does not start with | EMAIL:"~~ (zu schwach!)
+- ✅ **"Does not contain | EMAIL:"** (robuster!)
+
+**LOGIK:**
 - ✅ `mj@cdtechnologies.de` → Subject "Angebot Kunde X" → **DURCHGELASSEN**
 - 🚫 `mj@cdtechnologies.de` → Subject "EMAIL: Rechnung..." → **BLOCKIERT**
+- 🚫 `mj@cdtechnologies.de` → Subject "Anfrage EMAIL: Test" → **BLOCKIERT**
 - ✅ `info@cdtechnologies.de` → Subject "Rechnung 123" → **DURCHGELASSEN**
 - 🚫 `info@cdtechnologies.de` → Subject "(📎 5): Dokument" → **BLOCKIERT**
 
