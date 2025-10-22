@@ -4278,41 +4278,40 @@ async def process_email_background(
         
         logger.info(f"🔍 DEBUG: Full data keys: {list(data.keys())}")
         
-        # 🚫 LOOP PREVENTION: Ignore system-generated emails and spam loops
+        # 🚫 LOOP PREVENTION CHECK #1: Pre-check on Zapier payload (before Graph API load)
         from_field = data.get("from", "").lower()
         subject = data.get("subject", "")
         
-        # Check if email is from system (our notification sender)
+        # Block system sender
         if "mj@cdtechnologies.de" in from_field:
-            logger.info(f"🚫 LOOP PREVENTION: Ignoring email from system sender: {from_field}")
+            logger.info(f"🚫 LOOP PREVENTION (PRE-LOAD): Blocking system sender: {from_field}")
             return
         
-        # Check if subject contains system markers
-        system_markers = ["C&D AI", "✅", "⚠️", "🔔"]
+        # Block system markers in subject
+        system_markers = ["C&D AI", "✅", "⚠️", "🔔", "(📎"]
         if any(marker in subject for marker in system_markers):
-            logger.info(f"🚫 LOOP PREVENTION: Ignoring email with system marker in subject: {subject}")
+            logger.info(f"🚫 LOOP PREVENTION (PRE-LOAD): Blocking system marker in subject")
             return
         
-        # 🚫 SPAM LOOP PREVENTION: Block marketing/spam emails
+        # Block EMAIL: forwarding patterns
+        if subject.startswith("EMAIL:") or "EMAIL: EMAIL:" in subject:
+            logger.info(f"🚫 LOOP PREVENTION (PRE-LOAD): Blocking forwarded email pattern")
+            return
+        
+        # 🚫 SPAM PREVENTION: Block marketing/spam emails
         spam_indicators = [
-            "EMAIL: EMAIL:",  # Forwarded spam pattern
-            "EMAIL: Ihre empfohlenen",  # Amazon spam pattern
-            "wasserspender@",
-            "newsletter@",
-            "marketing@",
-            "noreply",  # Catches both noreply@ and no-reply@
-            "no-reply",
-            "unsubscribe",
-            "list-unsubscribe",
-            "@business.amazon",
-            "zeitlich befristeten angeboten"  # Amazon spam specific
+            "noreply", "no-reply",
+            "newsletter@", "marketing@", 
+            "wasserspender@", "@business.amazon",
+            "unsubscribe", "list-unsubscribe",
+            "Ihre empfohlenen", "zeitlich befristeten angeboten"
         ]
         
         # Check from field and subject for spam indicators
         combined_check = from_field + " " + subject.lower()
         for indicator in spam_indicators:
             if indicator.lower() in combined_check:
-                logger.info(f"🚫 SPAM LOOP PREVENTION: Blocking marketing/spam email: {indicator}")
+                logger.info(f"🚫 SPAM PREVENTION (PRE-LOAD): Blocking spam indicator '{indicator}'")
                 return
         
         # If message_id provided → Load full email from Graph API
@@ -4346,14 +4345,35 @@ async def process_email_background(
             logger.info(f"✅ Email loaded: From={from_address}, Subject={subject}, Attachments={len(attachments)}")
             
             # 🚫 LOOP PREVENTION CHECK #2: After loading real email data from Graph API
+            # (Critical: First check runs on Zapier payload, this runs on actual Graph API data)
+            
+            # Block system sender
             if "mj@cdtechnologies.de" in from_address.lower():
                 logger.info(f"🚫 LOOP PREVENTION (POST-LOAD): Blocking system email from {from_address}")
                 return
             
-            # Check if subject contains "EMAIL:" pattern (forwarded loop)
-            if subject.startswith("EMAIL:") or "EMAIL: EMAIL:" in subject or "(📎" in subject:
-                logger.info(f"🚫 LOOP PREVENTION (POST-LOAD): Blocking forwarded email: {subject[:100]}")
+            # Block system markers in subject
+            system_markers = ["C&D AI", "✅", "⚠️", "🔔", "(📎"]
+            if any(marker in subject for marker in system_markers):
+                logger.info(f"🚫 LOOP PREVENTION (POST-LOAD): Blocking system marker: {subject[:100]}")
                 return
+            
+            # Block EMAIL: forwarding pattern
+            if subject.startswith("EMAIL:") or "EMAIL: EMAIL:" in subject:
+                logger.info(f"🚫 LOOP PREVENTION (POST-LOAD): Blocking forwarded loop: {subject[:100]}")
+                return
+            
+            # Block SPAM patterns
+            spam_patterns = [
+                "noreply", "no-reply", "newsletter", "marketing", 
+                "wasserspender", "business.amazon", "unsubscribe",
+                "Ihre empfohlenen", "zeitlich befristeten"
+            ]
+            from_subject_check = (from_address + " " + subject).lower()
+            for pattern in spam_patterns:
+                if pattern.lower() in from_subject_check:
+                    logger.info(f"🚫 SPAM PREVENTION (POST-LOAD): Blocking spam pattern '{pattern}': {from_address}")
+                    return
             
             # � SCHRITT 1: DUPLIKATPRÜFUNG VOR PROCESSING
             tracking_db = get_email_tracking_db()
