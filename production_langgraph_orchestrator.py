@@ -4638,32 +4638,59 @@ async def process_call(request: Request):
         data = await request.json()
         logger.info(f"📞 Call Webhook Payload: {json.dumps(data, ensure_ascii=False)[:1000]}")
         
-        # 🔍 DETECT WEBHOOK SOURCE: SipGate Assist vs FrontDesk
-        is_sipgate_assist = "call" in data and "assist" in data
+        # 🔍 DETECT WEBHOOK SOURCE: SipGate Assist (v1 + NEW) vs FrontDesk
+        is_sipgate_assist_v1 = "call" in data and "assist" in data
+        is_sipgate_new = "callHeadline" in data and "channel" in data
         is_frontdesk = "recording_url" in data or "audio_url" in data or "transcription_url" in data
         
-        if is_sipgate_assist:
-            logger.info("✅ Detected: SipGate Assist API webhook")
+        # Unified flag for any Sipgate format
+        is_sipgate_assist = is_sipgate_assist_v1 or is_sipgate_new
+        
+        if is_sipgate_new:
+            logger.info("✅ Detected: Sipgate AI Assist Webhook (NEW format)")
+            # 🎯 SIPGATE AI ASSIST WEBHOOK (NEW FORMAT)
+            # Structure: {"callHeadline": "...", "call": {...}, "channel": {...}, "transcriptions": [...], "summary": "..."}
+            call_data = data.get("call", {})
+            channel_data = data.get("channel", {})
+            transcriptions_data = data.get("transcriptions", [])
+            summary_text = data.get("summary", "")
+            assist_data = {}  # No nested assist in new format
+            summary_data = {}
+        elif is_sipgate_assist_v1:
+            logger.info("✅ Detected: SipGate Assist API webhook (v1 format)")
             # 🎯 SIPGATE ASSIST API STRUCTURE (v1)
             call_data = data.get("call", {})
             assist_data = data.get("assist", {})
             summary_data = assist_data.get("summary", {})
+            channel_data = {}
+            transcriptions_data = []
+            summary_text = ""
         elif is_frontdesk:
             logger.info("✅ Detected: FrontDesk webhook")
             # FrontDesk sends flat structure
             call_data = data  # All data at root level
             assist_data = {}
             summary_data = {}
+            channel_data = {}
+            transcriptions_data = []
+            summary_text = ""
         else:
             logger.warning("⚠️ Unknown webhook format - treating as generic call")
             call_data = data
             assist_data = {}
             summary_data = {}
+            channel_data = {}
+            transcriptions_data = []
+            summary_text = ""
         
-        logger.info(f"✅ Processing call with source: {'SipGate Assist' if is_sipgate_assist else 'FrontDesk' if is_frontdesk else 'Unknown'}")
+        logger.info(f"✅ Processing call with source: {'SipGate NEW' if is_sipgate_new else 'SipGate v1' if is_sipgate_assist_v1 else 'FrontDesk' if is_frontdesk else 'Unknown'}")
         
         # Extract call direction (format differs between sources)
-        if is_sipgate_assist:
+        if is_sipgate_new:
+            # NEW Sipgate format: direction directly in call object
+            call_direction = call_data.get("direction", "inbound")  # "inbound" or "outbound"
+        elif is_sipgate_assist_v1:
+            # v1 format uses "in"/"out"
             call_direction = call_data.get("direction", "in")  # "in" or "out"
             call_direction = "inbound" if call_direction == "in" else "outbound"
         else:
@@ -4671,9 +4698,31 @@ async def process_call(request: Request):
             call_direction = call_data.get("call_direction", call_data.get("direction", "inbound"))
         
         # 🎯 EXTRACT CALL INFO (source-aware)
-        if is_sipgate_assist:
+        if is_sipgate_new:
+            # NEW SIPGATE FORMAT
             call_id = call_data.get("id", "")
-            call_duration = call_data.get("duration", 0) // 1000  # SipGate: milliseconds
+            call_duration_seconds = call_data.get("duration", 0)  # NEW: seconds as float
+            call_duration = int(call_duration_seconds)  # Convert to int seconds
+            call_start_time = call_data.get("startTime", "")
+            call_end_time = call_data.get("endTime", "")
+            call_users = []  # Not in new format
+            
+            # Phone numbers: NEW format uses "caller" and "callee"
+            caller = call_data.get("caller", "")
+            callee = call_data.get("callee", "")
+            
+            # Map to from/to based on direction
+            if call_direction == "outbound":
+                external_number = f"+{callee}" if callee and not callee.startswith("+") else callee
+                our_number = f"+{caller}" if caller and not caller.startswith("+") else caller
+            else:
+                external_number = f"+{caller}" if caller and not caller.startswith("+") else caller
+                our_number = f"+{callee}" if callee and not callee.startswith("+") else callee
+                
+        elif is_sipgate_assist_v1:
+            # V1 SIPGATE FORMAT
+            call_id = call_data.get("id", "")
+            call_duration = call_data.get("duration", 0) // 1000  # SipGate v1: milliseconds
             call_start_time = call_data.get("startTime", "")
             call_end_time = call_data.get("endTime", "")
             call_users = call_data.get("users", [])
@@ -4712,7 +4761,38 @@ async def process_call(request: Request):
         phone_normalized = external_number.replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
         
         # 🎯 EXTRACT TRANSCRIPTION (source-aware)
-        if is_sipgate_assist:
+        if is_sipgate_new:
+            # NEW SIPGATE FORMAT: transcriptions array + summary at top level
+            call_transcript_parts = []
+            
+            # Add summary first
+            if summary_text:
+                call_transcript_parts.append(f"📋 Zusammenfassung:\n{summary_text}")
+            
+            # Add transcriptions
+            if transcriptions_data:
+                call_transcript_parts.append("\n\n📝 Transkript:")
+                for trans in transcriptions_data:
+                    speaker = trans.get("speaker", "?")
+                    text = trans.get("text", "")
+                    if text:
+                        call_transcript_parts.append(f"\nSprecher {speaker}: {text}")
+            
+            call_transcript = "\n".join(call_transcript_parts) if call_transcript_parts else ""
+            
+            # Extract from channel
+            channel_name = channel_data.get("name", "")
+            call_headline = data.get("callHeadline", "")
+            
+            # No SmartAnswers in new format - extract from transcript/summary instead
+            caller_name = ""
+            company_name = ""
+            caller_request = summary_text  # Use summary as request
+            key_points = []
+            topics = [channel_name] if channel_name else []
+            
+        elif is_sipgate_assist_v1:
+            # V1 SIPGATE FORMAT
             # SipGate Assist: nested in assist.summary
             call_transcript = summary_data.get("content", "")
             key_points = summary_data.get("keyPoints", [])
@@ -4768,7 +4848,7 @@ async def process_call(request: Request):
             logger.info(f"🎙️ FrontDesk Recording: {recording_url}")
         
         call_status = ""
-        assigned_user = call_users[0] if call_users and is_sipgate_assist else ""
+        assigned_user = call_users[0] if call_users and is_sipgate_assist_v1 else ""
         user_id = ""
         notes = ""
         tags = []
@@ -4814,7 +4894,7 @@ async def process_call(request: Request):
             additional_data={
                 **data,
                 # Source identification
-                "webhook_source": "sipgate_assist" if is_sipgate_assist else "frontdesk" if is_frontdesk else "unknown",
+                "webhook_source": "sipgate_new" if is_sipgate_new else "sipgate_v1" if is_sipgate_assist_v1 else "frontdesk" if is_frontdesk else "unknown",
                 # Core call data
                 "call_direction": call_direction,
                 "call_duration": call_duration,
