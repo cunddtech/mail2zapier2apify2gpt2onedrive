@@ -4954,38 +4954,96 @@ async def process_frontdesk(request: Request):
         data = await request.json()
         logger.info(f"🎙️ FrontDesk Webhook: {json.dumps(data, ensure_ascii=False)[:1000]}")
         
-        # Extract phone number (various field names)
-        phone_number = (
-            data.get("caller") or 
-            data.get("from") or 
-            data.get("phone") or
-            data.get("caller_number") or
-            ""
-        )
+        # 🔍 DETECT FORMAT: v1 Assist API vs Flat FrontDesk
+        is_v1_assist = "call" in data and "assist" in data
         
-        # Extract transcription
-        transcription = (
-            data.get("transcription") or
-            data.get("transcript") or
-            data.get("text") or
-            data.get("content") or
-            ""
-        )
-        
-        # Extract additional metadata
-        caller_name = data.get("caller_name", data.get("name", ""))
-        company = data.get("company", data.get("company_name", ""))
-        duration = data.get("duration", data.get("call_duration", 0))
-        recording_url = data.get("recording_url", data.get("audio_url", ""))
+        if is_v1_assist:
+            # FrontDesk sends v1 Assist API format
+            logger.info("✅ FrontDesk using v1 Assist API format")
+            call_data = data.get("call", {})
+            assist_data = data.get("assist", {})
+            summary_data = assist_data.get("summary", {})
+            
+            # Extract from v1 structure
+            call_direction = call_data.get("direction", "in")
+            call_direction = "inbound" if call_direction == "in" else "outbound"
+            
+            # Phone numbers from call object
+            if call_direction == "inbound":
+                phone_number = call_data.get("from", "")
+                our_number = call_data.get("to", "")
+            else:
+                phone_number = call_data.get("to", "")
+                our_number = call_data.get("from", "")
+            
+            # Duration in milliseconds → seconds
+            duration = call_data.get("duration", 0) // 1000
+            
+            # Extract from assist.summary
+            transcription = summary_data.get("content", "")
+            key_points = summary_data.get("keyPoints", [])
+            topics = summary_data.get("topics", [])
+            
+            # Try to extract caller info from callScenarios
+            caller_name = ""
+            company = ""
+            call_scenarios = assist_data.get("callScenarios", [])
+            for scenario in call_scenarios:
+                smart_answers = scenario.get("smartAnswers", [])
+                for answer_set in smart_answers:
+                    items = answer_set.get("setItems", [])
+                    for item in items:
+                        question = item.get("question", "").lower()
+                        answer = item.get("answer", "")
+                        if "name" in question and not caller_name:
+                            caller_name = answer
+                        elif "firma" in question or "company" in question:
+                            company = answer
+            
+            recording_url = ""
+            
+        else:
+            # Flat FrontDesk format (legacy)
+            logger.info("✅ FrontDesk using flat format")
+            # Extract phone number (various field names)
+            phone_number = (
+                data.get("caller") or 
+                data.get("from") or 
+                data.get("phone") or
+                data.get("caller_number") or
+                ""
+            )
+            
+            # Extract transcription
+            transcription = (
+                data.get("transcription") or
+                data.get("transcript") or
+                data.get("text") or
+                data.get("content") or
+                ""
+            )
+            
+            # Extract additional metadata
+            caller_name = data.get("caller_name", data.get("name", ""))
+            company = data.get("company", data.get("company_name", ""))
+            duration = data.get("duration", data.get("call_duration", 0))
+            recording_url = data.get("recording_url", data.get("audio_url", ""))
+            key_points = []
+            topics = []
+            call_direction = data.get("direction", "inbound")
+            our_number = ""
         
         # Log extracted data
         logger.info(f"📞 FrontDesk Call: {phone_number}")
+        logger.info(f"   Direction: {call_direction} | Duration: {duration}s")
         if caller_name:
             logger.info(f"   📛 Name: {caller_name}")
         if company:
             logger.info(f"   🏢 Company: {company}")
-        if duration:
-            logger.info(f"   ⏱️ Duration: {duration}s")
+        if key_points:
+            logger.info(f"   🔑 Key Points: {len(key_points)} items")
+        if topics:
+            logger.info(f"   🏷️ Topics: {', '.join(topics)}")
         if recording_url:
             logger.info(f"   🎙️ Recording: {recording_url}")
         
@@ -4996,6 +5054,8 @@ async def process_frontdesk(request: Request):
             transcript_parts.append(f"\n👤 Anrufer: {caller_name}")
         if company:
             transcript_parts.append(f"\n🏢 Firma: {company}")
+        if key_points:
+            transcript_parts.append(f"\n\n🔑 Wichtige Punkte:\n" + "\n".join(f"- {point}" for point in key_points))
         
         enhanced_transcript = "".join(transcript_parts)
         
@@ -5006,12 +5066,16 @@ async def process_frontdesk(request: Request):
             content=enhanced_transcript,
             additional_data={
                 **data,
-                "webhook_source": "frontdesk",
-                "call_direction": data.get("direction", "inbound"),
+                "webhook_source": "frontdesk_v1" if is_v1_assist else "frontdesk_flat",
+                "call_direction": call_direction,
                 "call_duration": duration,
                 "phone_normalized": phone_number.replace(" ", "").replace("-", "").replace("(", "").replace(")", ""),
+                "external_number": phone_number,
+                "our_number": our_number,
                 "caller_name": caller_name,
                 "company_name": company,
+                "key_points": key_points,
+                "topics": topics,
                 "recording_url": recording_url
             }
         )
