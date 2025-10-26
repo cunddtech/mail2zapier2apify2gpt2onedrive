@@ -1195,6 +1195,10 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
             # 📎 Attachment Info
             "attachments_count": processing_result.get("attachments_count", 0),
             "has_attachments": processing_result.get("has_attachments", False),
+            "attachment_results": [
+                {k: v for k, v in att.items() if k != "file_bytes"}
+                for att in processing_result.get("attachment_results", [])
+            ],
             
             # 🎯 Smart Action buttons (context-aware)
             "action_options": smart_actions,
