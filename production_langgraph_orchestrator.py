@@ -877,7 +877,13 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
     
     Wird nach jedem erfolgreichen AI Processing aufgerufen
     ENHANCED: Spezielle Behandlung für unbekannte Kontakte
+    BATCH MODE: Kann durch DISABLE_NOTIFICATIONS=true unterdrückt werden
     """
+    
+    # 🔇 BATCH PROCESSING: Skip notifications if disabled
+    if os.environ.get('DISABLE_NOTIFICATIONS', 'false').lower() == 'true':
+        logger.info(f"🔇 Notification disabled for batch processing: {message_type} from {from_contact}")
+        return {"status": "skipped", "reason": "batch_processing_mode"}
     
     ZAPIER_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/17762912/u5ilur9/"
     
@@ -5698,10 +5704,27 @@ async def process_whatsapp(request: Request):
     try:
         data = await request.json()
         
+        # Extract WhatsApp message content
+        message_text = (
+            data.get("message_text") or 
+            data.get("message") or 
+            data.get("content") or 
+            data.get("text") or 
+            ""
+        )
+        
+        # Extract sender information
+        sender_phone = (
+            data.get("sender_phone") or 
+            data.get("from") or 
+            data.get("phone") or 
+            ""
+        )
+        
         result = await orchestrator.process_communication(
             message_type="whatsapp",
-            from_contact=data.get("from", ""),
-            content=data.get("message", data.get("content", "")),
+            from_contact=sender_phone,
+            content=message_text,
             additional_data=data
         )
         
@@ -6000,6 +6023,27 @@ async def reset_contact_cache(request: Request):
 # 💰 PAYMENT MATCHING API ENDPOINTS
 # ===============================
 
+@app.post("/api/payment/init-db")
+async def init_payment_database():
+    """
+    🏗️ Initialize payment tracking database
+    """
+    
+    try:
+        from modules.database.payment_matching import init_payment_db
+        
+        init_payment_db()
+        
+        return {
+            "status": "success",
+            "message": "Payment database initialized"
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Payment DB init error: {e}")
+        raise HTTPException(status_code=500, detail=f"Database init failed: {str(e)}")
+
+
 @app.post("/api/payment/import-csv")
 async def import_payment_csv(request: Request):
     """
@@ -6151,6 +6195,358 @@ async def get_payment_stats():
     except Exception as e:
         logger.error(f"❌ Get statistics error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get statistics: {str(e)}")
+
+
+# ===============================
+# 🔍 EMAIL SEARCH API ENDPOINTS
+# ===============================
+
+@app.get("/api/emails/preview")
+async def preview_email_batch(
+    query: str = "Rechnung OR Invoice OR Faktura",
+    start_date: str = "2025-01-01",
+    end_date: str = "2025-12-31",
+    max_emails: int = 100
+):
+    """
+    👀 PREVIEW: Show what emails would be processed (without actually processing)
+    
+    This gives you an estimate of:
+    - How many emails will be processed
+    - Estimated processing time
+    - Cost estimation
+    - Which emails will be skipped
+    """
+    
+    try:
+        # Search for emails
+        search_response = await search_emails(
+            query=query,
+            start_date=start_date,
+            end_date=end_date,
+            limit=max_emails
+        )
+        
+        if search_response["status"] != "success":
+            raise HTTPException(status_code=500, detail="Email search failed")
+        
+        emails = search_response["emails"]
+        high_priority_emails = [email for email in emails if email.get("recommendation") == "PROCESS"]
+        
+        # Calculate estimates
+        estimated_processing_time = len(high_priority_emails) * 15  # ~15 seconds per email
+        estimated_api_calls = len(high_priority_emails) * 3  # Graph API + OCR + GPT calls
+        
+        return {
+            "status": "preview",
+            "search_query": query,
+            "date_range": {"start": start_date, "end": end_date},
+            "summary": {
+                "total_emails_found": len(emails),
+                "high_priority_emails": len(high_priority_emails),
+                "will_be_skipped": len(emails) - len(high_priority_emails),
+                "estimated_processing_time": f"{estimated_processing_time} seconds (~{estimated_processing_time//60} minutes)",
+                "estimated_api_calls": estimated_api_calls,
+                "notifications_will_be_disabled": True
+            },
+            "high_priority_previews": [
+                {
+                    "subject": email["subject"],
+                    "from": email["from"],
+                    "score": email.get("invoice_score", 0),
+                    "received_date": email["received_date"],
+                    "has_attachments": email["has_attachments"]
+                }
+                for email in high_priority_emails[:10]  # Show first 10
+            ],
+            "ready_to_process": len(high_priority_emails) > 0,
+            "process_url": "https://my-langgraph-agent-production.up.railway.app/api/emails/batch-process"
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Email preview error: {e}")
+        raise HTTPException(status_code=500, detail=f"Preview failed: {str(e)}")
+
+
+@app.get("/api/emails/search")
+async def search_emails(
+    query: str = Query(..., description="Search query (e.g., 'Rechnung', 'Invoice', company name)"),
+    start_date: str = Query(None, description="Start date in YYYY-MM-DD format"),
+    end_date: str = Query(None, description="End date in YYYY-MM-DD format"),
+    limit: int = Query(50, description="Maximum number of emails to return")
+):
+    """
+    🔍 Search through Microsoft Graph emails for invoices and documents
+    
+    Example usage:
+    /api/emails/search?query=Rechnung&start_date=2025-01-01&end_date=2025-12-31&limit=100
+    """
+    
+    try:
+        from datetime import datetime, timedelta
+        
+        # Get access token
+        access_token = await get_graph_access_token()
+        user_email = "mj@cundd.net"  # Your email
+        
+        # Build search parameters
+        search_params = []
+        
+        # Date filter
+        if start_date:
+            search_params.append(f"receivedDateTime ge {start_date}T00:00:00Z")
+        if end_date:
+            search_params.append(f"receivedDateTime le {end_date}T23:59:59Z")
+        
+        # Build Graph API URL
+        filter_str = " and ".join(search_params) if search_params else None
+        
+        url = f"https://graph.microsoft.com/v1.0/users/{user_email}/messages"
+        params = {
+            "$search": f'"{query}"',
+            "$top": limit,
+            "$select": "id,subject,from,receivedDateTime,hasAttachments,body",
+            "$orderby": "receivedDateTime desc"
+        }
+        
+        if filter_str:
+            params["$filter"] = filter_str
+        
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json"
+        }
+        
+        logger.info(f"🔍 Email search: query='{query}', dates={start_date} to {end_date}")
+        
+        response = requests.get(url, headers=headers, params=params)
+        
+        if response.status_code == 200:
+            data = response.json()
+            emails = data.get('value', [])
+            
+            results = []
+            for email in emails:
+                # SMART FILTERING: Only analyze likely invoices/important emails
+                subject = email.get('subject', '').lower()
+                sender = email.get('from', {}).get('emailAddress', {}).get('address', '').lower()
+                body_preview = email.get('body', {}).get('content', '')[:200].lower()
+                
+                # INVOICE DETECTION SCORE
+                invoice_score = 0
+                
+                # Strong invoice indicators (+3 points each)
+                strong_keywords = ['rechnung', 'invoice', 'faktura', 'rechnungsnummer', 'invoice number']
+                invoice_score += sum(3 for keyword in strong_keywords if keyword in subject)
+                
+                # Medium indicators (+2 points each)
+                medium_keywords = ['bezahlung', 'payment', 'betrag', 'amount', 'fällig', 'due']
+                invoice_score += sum(2 for keyword in medium_keywords if keyword in subject or keyword in body_preview)
+                
+                # Trusted senders (+2 points)
+                trusted_domains = ['paypal.com', 'stripe.com', 'lexoffice.de', 'datev.de', 'sage.de']
+                if any(domain in sender for domain in trusted_domains):
+                    invoice_score += 2
+                
+                # Has attachments (+1 point)
+                if email.get('hasAttachments', False):
+                    invoice_score += 1
+                
+                # SKIP LOW-RELEVANCE EMAILS
+                skip_keywords = ['newsletter', 'marketing', 'unsubscribe', 'promotion', 'advertisement']
+                should_skip = any(keyword in subject or keyword in body_preview for keyword in skip_keywords)
+                
+                # Social media/auto-generated emails
+                auto_senders = ['noreply', 'no-reply', 'donotreply', 'facebook', 'twitter', 'linkedin']
+                is_auto = any(auto in sender for auto in auto_senders)
+                
+                # DECISION: Only include if score >= 3 AND not skip/auto
+                is_likely_invoice = invoice_score >= 3 and not should_skip and not is_auto
+                
+                # Add relevance metadata
+                results.append({
+                    "id": email.get('id'),
+                    "subject": email.get('subject'),
+                    "from": sender,
+                    "received_date": email.get('receivedDateTime'),
+                    "has_attachments": email.get('hasAttachments', False),
+                    "body_preview": body_preview[:100],
+                    "is_likely_invoice": is_likely_invoice,
+                    "invoice_score": invoice_score,
+                    "recommendation": "PROCESS" if is_likely_invoice else "SKIP",
+                    "process_url": f"https://my-langgraph-agent-production.up.railway.app/api/emails/process/{email.get('id')}"
+                })
+            
+            return {
+                "status": "success",
+                "query": query,
+                "date_range": {"start": start_date, "end": end_date},
+                "total_found": len(results),
+                "emails": results
+            }
+        
+        else:
+            logger.error(f"❌ Graph API error: {response.status_code}")
+            raise HTTPException(status_code=500, detail=f"Microsoft Graph error: {response.status_code}")
+            
+    except Exception as e:
+        logger.error(f"❌ Email search error: {e}")
+        raise HTTPException(status_code=500, detail=f"Email search failed: {str(e)}")
+
+
+@app.post("/api/emails/process/{message_id}")
+async def process_historical_email(message_id: str):
+    """
+    📧 Process a historical email through the complete AI pipeline
+    
+    This will:
+    1. Download email + attachments
+    2. Run OCR on PDFs
+    3. AI analysis for invoice detection
+    4. Store in database
+    5. Generate reports
+    """
+    
+    try:
+        user_email = "mj@cundd.net"
+        access_token = await get_graph_access_token()
+        
+        # Fetch email details
+        email_data = await fetch_email_details_with_attachments(user_email, message_id, access_token)
+        
+        if not email_data:
+            raise HTTPException(status_code=404, detail="Email not found")
+        
+        # Process through the complete pipeline
+        result = await orchestrator.process_communication(
+            message_type="email",
+            from_contact=email_data.get('from', {}).get('emailAddress', {}).get('address', ''),
+            content=email_data.get('subject', ''),
+            additional_data={
+                "message_id": message_id,
+                "user_email": user_email,
+                "subject": email_data.get('subject', ''),
+                "body_content": email_data.get('body', {}).get('content', ''),
+                "received_datetime": email_data.get('receivedDateTime'),
+                "attachments_count": len(email_data.get('attachments', [])),
+                "from_email_address_address": email_data.get('from', {}).get('emailAddress', {}).get('address', '')
+            }
+        )
+        
+        return {
+            "status": "success",
+            "message_id": message_id,
+            "processed": True,
+            "result": result
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Historical email processing error: {e}")
+        raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
+
+
+@app.post("/api/emails/batch-process")
+async def batch_process_emails(request: Request):
+    """
+    🔄 Batch process multiple emails for annual invoice processing
+    
+    Expected payload:
+    {
+        "query": "Rechnung OR Invoice OR Faktura",
+        "start_date": "2025-01-01",
+        "end_date": "2025-12-31",
+        "max_emails": 100
+    }
+    """
+    
+    try:
+        data = await request.json()
+        
+        query = data.get("query", "Rechnung OR Invoice OR Faktura")
+        start_date = data.get("start_date", "2025-01-01") 
+        end_date = data.get("end_date", "2025-12-31")
+        max_emails = data.get("max_emails", 100)
+        
+        # Search for emails
+        search_response = await search_emails(
+            query=query,
+            start_date=start_date,
+            end_date=end_date,
+            limit=max_emails
+        )
+        
+        if search_response["status"] != "success":
+            raise HTTPException(status_code=500, detail="Email search failed")
+        
+        # SMART BATCH PROCESSING: Only process high-score emails
+        emails = search_response["emails"]
+        
+        # Filter for only recommended emails
+        high_priority_emails = [email for email in emails if email.get("recommendation") == "PROCESS"]
+        
+        logger.info(f"📊 FILTERING RESULTS:")
+        logger.info(f"   📬 Total emails found: {len(emails)}")
+        logger.info(f"   ✅ High priority (score ≥3): {len(high_priority_emails)}")
+        logger.info(f"   ⏭️  Skipping low priority: {len(emails) - len(high_priority_emails)}")
+        
+        processed_results = []
+        
+        # Process only high-priority emails (with enhanced rate limiting)
+        for i, email in enumerate(high_priority_emails[:max_emails]):
+            try:
+                logger.info(f"📧 Processing email {i+1}/{len(high_priority_emails)}: {email['subject']} (Score: {email.get('invoice_score', 0)})")
+                
+                # DISABLE NOTIFICATIONS FOR BATCH PROCESSING
+                original_env = os.environ.get('DISABLE_NOTIFICATIONS', 'false')
+                os.environ['DISABLE_NOTIFICATIONS'] = 'true'
+                
+                try:
+                    # Process the email
+                    result = await process_historical_email(email["id"])
+                    processed_results.append({
+                        "email_id": email["id"],
+                        "subject": email["subject"],
+                        "invoice_score": email.get("invoice_score", 0),
+                        "status": "processed",
+                        "result": result
+                    })
+                finally:
+                    # Restore notification settings
+                    os.environ['DISABLE_NOTIFICATIONS'] = original_env
+                
+                # ENHANCED RATE LIMITING (avoid API limits)
+                if i < len(high_priority_emails) - 1:
+                    await asyncio.sleep(5)  # 5 second delay between emails
+                    
+            except Exception as e:
+                logger.error(f"❌ Failed to process email {email['id']}: {e}")
+                processed_results.append({
+                    "email_id": email["id"],
+                    "subject": email["subject"],
+                    "invoice_score": email.get("invoice_score", 0),
+                    "status": "failed",
+                    "error": str(e)
+                })
+        
+        return {
+            "status": "success",
+            "search_query": query,
+            "date_range": {"start": start_date, "end": end_date},
+            "filtering_stats": {
+                "emails_found": len(emails),
+                "high_priority": len(high_priority_emails),
+                "skipped_low_priority": len(emails) - len(high_priority_emails),
+                "emails_processed": len([r for r in processed_results if r["status"] == "processed"]),
+                "emails_failed": len([r for r in processed_results if r["status"] == "failed"])
+            },
+            "estimated_time_saved": f"{(len(emails) - len(high_priority_emails)) * 15} seconds",
+            "notifications_disabled": True,
+            "results": processed_results
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Batch processing error: {e}")
+        raise HTTPException(status_code=500, detail=f"Batch processing failed: {str(e)}")
 
 
 @app.post("/api/payment/match")
