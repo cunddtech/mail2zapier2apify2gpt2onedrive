@@ -260,10 +260,79 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
 </div>
 """
         
-        # 📎 Attachments HTML
+        # 📎 Attachments HTML (detailed like WEG A)
         attachments_html = ""
         attachments_count = notification_data.get("attachments_count", 0)
-        if attachments_count > 0:
+        attachment_results = notification_data.get("attachment_results", [])
+        
+        if attachments_count > 0 and attachment_results:
+            # Build detailed attachment list with OCR results and OneDrive links
+            attachment_details = []
+            for result in attachment_results:
+                name = result.get("filename", "Unbekannt")
+                size = result.get("size", 0)
+                doc_type = result.get("document_type", "unbekannt")
+                ocr_route = result.get("ocr_route", "none")
+                ocr_text = result.get("ocr_text", "")
+                structured_data = result.get("structured_data", {})
+                
+                # Format size
+                if size > 1024 * 1024:
+                    size_str = f"{size / (1024 * 1024):.1f} MB"
+                elif size > 1024:
+                    size_str = f"{size / 1024:.1f} KB"
+                else:
+                    size_str = f"{size} B"
+                
+                # Build detail line
+                detail_line = f"📄 <strong>{name}</strong> ({size_str})"
+                detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🏷️ Typ: {doc_type}"
+                detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🔍 Verarbeitung: {ocr_route}"
+                
+                # Add OCR preview if available
+                if ocr_text and ocr_text != f"[OCR Placeholder for {name} - Type: {doc_type}]":
+                    preview = ocr_text[:150] + "..." if len(ocr_text) > 150 else ocr_text
+                    detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;📝 Inhalt: {preview}"
+                
+                # Add structured data if available
+                if structured_data:
+                    if structured_data.get("invoice_number"):
+                        detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🔢 Rechnungs-Nr: {structured_data['invoice_number']}"
+                    if structured_data.get("total_amount"):
+                        detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;💰 Betrag: {structured_data['total_amount']}"
+                    if structured_data.get("vendor_name"):
+                        detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🏢 Lieferant: {structured_data['vendor_name']}"
+                    if structured_data.get("invoice_date"):
+                        detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;📅 Rechnungsdatum: {structured_data['invoice_date']}"
+                    if structured_data.get("due_date"):
+                        detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;⏰ Fällig am: {structured_data['due_date']}"
+                    if structured_data.get("direction"):
+                        direction_icon = "📥" if structured_data['direction'] == "incoming" else "📤"
+                        direction_text = "Eingang (AN uns)" if structured_data['direction'] == "incoming" else "Ausgang (VON uns)"
+                        detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;{direction_icon} Richtung: {direction_text}"
+                
+                # Add OneDrive links if available
+                onedrive_sharing_link = result.get("onedrive_sharing_link")
+                onedrive_web_url = result.get("onedrive_web_url")
+                onedrive_path = result.get("onedrive_path")
+                
+                if onedrive_sharing_link:
+                    detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🔗 <a href='{onedrive_sharing_link}'>OneDrive Link öffnen</a>"
+                elif onedrive_web_url:
+                    detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🔗 <a href='{onedrive_web_url}'>OneDrive Link öffnen</a>"
+                
+                if onedrive_path:
+                    detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;📂 Ablage: {onedrive_path}"
+                
+                attachment_details.append(detail_line)
+            
+            if attachment_details:
+                details_html = "<br><br>".join(attachment_details)
+                attachments_html = f'<p><strong>📎 Anhänge ({attachments_count}):</strong><br><br>{details_html}</p>'
+            else:
+                attachments_html = f'<p><strong>📎 Anhänge:</strong> {attachments_count} Datei(en) verarbeitet</p>'
+        elif attachments_count > 0:
+            # Fallback if attachment_results missing
             attachments_html = f"<p><strong>📎 Anhänge:</strong> {attachments_count} Datei(en) verarbeitet</p>"
         
         # ✅ Tasks HTML
