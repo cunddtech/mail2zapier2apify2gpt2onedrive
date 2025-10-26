@@ -4539,50 +4539,31 @@ async def process_email_background(
                         att_result["file_hash"] = ""
                         att_result["is_duplicate"] = False
             
-            # Process with full email data
-            result = await orchestrator.process_communication(
-                message_type="email",
-                from_contact=from_address,
-                content=f"{subject}\n\n{body}",
-                additional_data={
-                    **data,
-                    "subject": subject,
-                    "body": body,
-                    "body_type": body_type,
-                    "attachments": attachments,
-                    "has_attachments": len(attachments) > 0,
-                    "attachments_count": len(attachments),
-                    "attachment_results": attachment_results,  # OCR results
-                    "document_type_hint": document_type_hint,  # 🎯 NEW: Pass hint to AI analysis
-                    "priority": priority  # 🎯 NEW: Pass priority
-                }
-            )
-            logger.info(f"✅ Email processing complete: {result.get('workflow_path', 'unknown')}")
+            # 📁 ORDNERSTRUKTUR GENERIEREN (BEFORE process_communication!)
+            # We need folder structure BEFORE notification to include OneDrive links
+            logger.info("[📂 Starte Ordner- und Dateinamensgenerierung...")
             
-            # � ORDNERSTRUKTUR GENERIEREN
-            ai_analysis = result.get("ai_analysis", {})
-            
-            # Kontext für folder_logic vorbereiten
-            context = {
-                "dokumenttyp": ai_analysis.get("dokumenttyp", "unbekannt"),
-                "kunde": ai_analysis.get("kunde", "Unbekannt"),
-                "lieferant": ai_analysis.get("lieferant", "Unbekannt"),
-                "projekt": ai_analysis.get("projektnummer", "Unbekannt"),
-                "datum_dokument": ai_analysis.get("datum", ""),
-                "valid_attachments": attachment_results  # Alle verarbeiteten Anhänge
+            # Prepare AI analysis context (before full GPT call)
+            preliminary_context = {
+                "dokumenttyp": document_type_hint if document_type_hint else "unbekannt",
+                "kunde": "Unbekannt",  # Will be updated by GPT
+                "lieferant": "Unbekannt",  # Will be updated by GPT
+                "projekt": "Unbekannt",
+                "datum_dokument": "",
+                "valid_attachments": attachment_results
             }
             
             try:
                 folder_info = generate_folder_and_filenames(
-                    context=context,
-                    gpt_result=ai_analysis,
+                    context=preliminary_context,
+                    gpt_result={},  # Empty for now, will be enriched by GPT
                     attachments=attachment_results
                 )
                 
                 logger.info(f"📁 Ordnerstruktur generiert: {folder_info.get('ordnerstruktur')}")
                 logger.info(f"📄 Dateinamen ({len(folder_info.get('pdf_filenames', []))}): {folder_info.get('pdf_filenames')}")
                 
-                # Ordnerstruktur zu attachment_results hinzufügen
+                # Add folder structure to attachment_results
                 for i, att_result in enumerate(attachment_results):
                     if i < len(folder_info.get("pdf_filenames", [])):
                         att_result["target_folder"] = folder_info.get("ordnerstruktur")
@@ -4598,7 +4579,7 @@ async def process_email_background(
                     att_result["target_filename"] = att_result.get("filename", "unknown.pdf")
                     att_result["target_full_path"] = f"Scan/Unbekannt/{att_result['target_filename']}"
             
-            # ☁️ ONEDRIVE UPLOAD
+            # ☁️ ONEDRIVE UPLOAD (BEFORE process_communication!)
             logger.info(f"☁️ Starte OneDrive Upload für {len(attachment_results)} Dateien...")
             
             for att_result in attachment_results:
@@ -4632,6 +4613,7 @@ async def process_email_background(
                         att_result["onedrive_uploaded"] = True
                         att_result["onedrive_path"] = f"{target_folder}/{target_filename}"
                         att_result["onedrive_url"] = upload_url
+                        att_result["onedrive_web_url"] = upload_url  # Add for compatibility
                         
                         # Update tracking DB
                         try:
@@ -4652,6 +4634,32 @@ async def process_email_background(
                     logger.error(f"❌ Upload-Fehler für {att_result.get('filename')}: {upload_error}")
                     att_result["onedrive_uploaded"] = False
                     att_result["onedrive_error"] = str(upload_error)
+            
+            # NOW process with full email data (attachment_results now have OneDrive links!)
+            result = await orchestrator.process_communication(
+                message_type="email",
+                from_contact=from_address,
+                content=f"{subject}\n\n{body}",
+                additional_data={
+                    **data,
+                    "subject": subject,
+                    "body": body,
+                    "body_type": body_type,
+                    "attachments": attachments,
+                    "has_attachments": len(attachments) > 0,
+                    "attachments_count": len(attachments),
+                    "attachment_results": attachment_results,  # OCR results + OneDrive links!
+                    "document_type_hint": document_type_hint,  # 🎯 NEW: Pass hint to AI analysis
+                    "priority": priority  # 🎯 NEW: Pass priority
+                }
+            )
+            logger.info(f"✅ Email processing complete: {result.get('workflow_path', 'unknown')}")
+            
+            # 🔍 AI ANALYSIS (already done in process_communication)
+            ai_analysis = result.get("ai_analysis", {})
+            
+            # 🔍 AI ANALYSIS (already done in process_communication)
+            ai_analysis = result.get("ai_analysis", {})
             
             # 💾 SPEICHERN IN EMAIL TRACKING DB
             processing_time = asyncio.get_event_loop().time() - processing_start_time
