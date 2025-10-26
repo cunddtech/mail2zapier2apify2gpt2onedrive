@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-🚀 PRODUCTION-READY AI COMMUNICATION ORCHESTRATOR
-=================================================
+🚀 PRODUCTION-READY AI COMMUNICATION ORCHESTRATOR - VERSION 2.1
+=============================================================
 
 LANGGRAPH/LANGCHAIN MIGRATION - SOFORT LAUFFÄHIG!
 
@@ -14,6 +14,7 @@ SYSTEM FEATURES:
 ✅ FastAPI Production Server
 ✅ Docker Container Ready
 ✅ QNAP Container Station Compatible
+✅ Smart Email Batch Processing (NEW!)
 
 PRODUCTION URLs:
 🌐 http://192.168.0.101:5001 (QNAP Local)
