@@ -45,7 +45,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 
 # FastAPI Production Server
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.responses import Response as FastAPIResponse, JSONResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -54,6 +54,32 @@ import uvicorn
 import aiohttp
 import httpx
 import logging
+
+# GRAPH API AUTHENTICATION
+async def get_graph_access_token():
+    """Get Microsoft Graph access token for email processing"""
+    tenant_id = os.getenv("GRAPH_TENANT_ID_MAIL")
+    client_id = os.getenv("GRAPH_CLIENT_ID_MAIL") 
+    client_secret = os.getenv("GRAPH_CLIENT_SECRET_MAIL")
+    
+    if not all([tenant_id, client_id, client_secret]):
+        raise Exception("Missing Microsoft Graph credentials")
+    
+    url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    data = {
+        "grant_type": "client_credentials",
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "scope": "https://graph.microsoft.com/.default"
+    }
+    
+    async with httpx.AsyncClient() as client:
+        response = await client.post(url, headers=headers, data=data)
+        if response.status_code == 200:
+            return response.json().get("access_token")
+        else:
+            raise Exception(f"Token request failed: {response.status_code}")
 
 # SQLite Database für Contact Cache
 import sqlite3
