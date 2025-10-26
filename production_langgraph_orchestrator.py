@@ -4584,9 +4584,21 @@ async def process_email_background(
             
             for att_result in attachment_results:
                 try:
-                    # Skip Duplikate
+                    # Skip Duplikate (aber übernehme existierende OneDrive-Links!)
                     if att_result.get("is_duplicate", False):
                         logger.warning(f"⏭️ Skipping duplicate: {att_result.get('filename')}")
+                        
+                        # ✅ REUSE EXISTING ONEDRIVE LINKS from duplicate_info
+                        duplicate_info = att_result.get("duplicate_info", {})
+                        if duplicate_info and duplicate_info.get("onedrive_link"):
+                            logger.info(f"🔗 Reusing existing OneDrive link: {duplicate_info['onedrive_link']}")
+                            att_result["onedrive_uploaded"] = True
+                            att_result["onedrive_path"] = duplicate_info.get("folder_path", "Scan/Unbekannt")
+                            att_result["onedrive_url"] = duplicate_info["onedrive_link"]
+                            att_result["onedrive_web_url"] = duplicate_info["onedrive_link"]  # Add for compatibility
+                        else:
+                            logger.warning("⚠️ Duplicate has no OneDrive link information")
+                        
                         continue
                     
                     file_bytes = att_result.get("file_bytes")
