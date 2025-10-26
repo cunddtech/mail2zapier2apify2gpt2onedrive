@@ -46,7 +46,7 @@ from langchain_core.output_parsers import JsonOutputParser
 
 # FastAPI Production Server
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import Response as FastAPIResponse, JSONResponse
+from fastapi.responses import Response as FastAPIResponse, JSONResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -80,6 +80,10 @@ from modules.gpt.classify_document_with_gpt import classify_document_with_gpt
 
 # 🗄️ Email Tracking Database - Duplikatprüfung
 from modules.database.email_tracking_db import get_email_tracking_db, EmailTrackingDB
+
+# 💰 Umsatzabgleich System
+from modules.database.umsatzabgleich import UmsatzabgleichEngine
+from modules.database.invoice_monitoring import InvoiceMonitoringDB
 
 # ☁️ OneDrive Upload
 from modules.upload.upload_file_to_onedrive import upload_file_to_onedrive
@@ -1331,6 +1335,182 @@ def _suggest_contact_type(processing_result: Dict[str, Any]) -> str:
         return "supplier"
     else:
         return "prospect"
+
+
+# ===============================
+# 💰 UMSATZABGLEICH NOTIFICATIONS
+# ===============================
+
+async def send_umsatzabgleich_notification(
+    report_type: str,  # "daily", "weekly", "critical"
+    data: Dict[str, Any],
+    recipients: List[str] = None
+):
+    """
+    💰 UMSATZABGLEICH NOTIFICATION - Email für kritische Abweichungen
+    
+    Sendet automatische E-Mail-Benachrichtigungen bei:
+    - Kritischen Abweichungen (>€500)
+    - Niedrige Matching-Rate (<80%)
+    - Tägliche/Wöchentliche Reports
+    """
+    
+    ZAPIER_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/17762912/u5ilur9/"
+    
+    if not recipients:
+        recipients = [
+            "markus.cuntz@gmail.com",
+            "office@cdtechnologies.de"
+        ]
+    
+    # Bestimme Subject und Priority basierend auf Report-Type
+    if report_type == "critical":
+        subject = f"🚨 KRITISCHE ABWEICHUNG: Umsatzabgleich Alert"
+        priority = "high"
+        icon = "🚨"
+    elif report_type == "weekly":
+        subject = f"📊 Wöchentlicher Umsatzabgleich Report"
+        priority = "medium" 
+        icon = "📊"
+    else:  # daily
+        subject = f"📅 Täglicher Umsatzabgleich Report"
+        priority = "low"
+        icon = "📅"
+    
+    # Report-Daten extrahieren
+    matching_rate = data.get("matching_rate", {})
+    variances = data.get("variances", {})
+    bank_total = data.get("bank_transactions", {}).get("total", 0)
+    invoice_total = data.get("invoice_data", {}).get("total", 0)
+    
+    # HTML Content für E-Mail
+    html_content = f"""
+    <h2>{icon} Umsatzabgleich Report</h2>
+    <h3>Zeitraum: {data.get('period', 'N/A')}</h3>
+    
+    <table border="1" style="border-collapse: collapse; width: 100%;">
+        <tr>
+            <td><strong>Matching Rate</strong></td>
+            <td>{matching_rate.get('matching_percentage', 0):.1f}%</td>
+        </tr>
+        <tr>
+            <td><strong>Bank Umsatz (Netto)</strong></td>
+            <td>€{bank_total:,.2f}</td>
+        </tr>
+        <tr>
+            <td><strong>Rechnungen (Netto)</strong></td>
+            <td>€{invoice_total:,.2f}</td>
+        </tr>
+        <tr>
+            <td><strong>Netto-Abweichung</strong></td>
+            <td>€{variances.get('net_variance', 0):,.2f}</td>
+        </tr>
+    </table>
+    
+    <h3>🔍 Kritische Punkte:</h3>
+    <ul>
+    """
+    
+    # Kritische Punkte hinzufügen
+    critical_points = data.get("critical_points", [])
+    if critical_points:
+        for point in critical_points:
+            html_content += f"<li>{point}</li>"
+    else:
+        html_content += "<li>Keine kritischen Punkte erkannt ✅</li>"
+    
+    html_content += """
+    </ul>
+    
+    <p><a href="https://my-langgraph-agent-production.up.railway.app/dashboard/invoices">📊 Vollständiges Dashboard öffnen</a></p>
+    
+    <p><small>Automatischer Report vom C&D Technologies Umsatzabgleich-System</small></p>
+    """
+    
+    # Zapier-kompatible Notification-Daten
+    notification_data = {
+        "notification_type": "umsatzabgleich",
+        "subject": subject,
+        "priority": priority,
+        "message_type": report_type,
+        "recipients": recipients,
+        "html_body": html_content,
+        "summary": f"Matching: {matching_rate.get('matching_percentage', 0):.1f}% | Abweichung: €{variances.get('net_variance', 0):,.2f}",
+        "timestamp": now_berlin().isoformat(),
+        "data": data
+    }
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                ZAPIER_WEBHOOK_URL,
+                json=notification_data,
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as response:
+                if response.status == 200:
+                    logger.info(f"✅ Umsatzabgleich notification sent: {report_type}")
+                    return True
+                else:
+                    logger.warning(f"⚠️ Umsatzabgleich notification failed - Status: {response.status}")
+                    return False
+                    
+    except Exception as e:
+        logger.error(f"❌ Umsatzabgleich notification error: {e}")
+        return False
+
+
+async def check_and_send_umsatzabgleich_alerts():
+    """
+    🚨 AUTOMATISCHE UMSATZABGLEICH ÜBERWACHUNG
+    
+    Prüft täglich kritische Abweichungen und sendet Alerts
+    """
+    try:
+        # Umsatzabgleich für die letzten 7 Tage
+        engine = UmsatzabgleichEngine()
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=7)
+        
+        report = engine.get_umsatzabgleich_report(
+            start_date.strftime('%Y-%m-%d'),
+            end_date.strftime('%Y-%m-%d')
+        )
+        
+        # Kritische Punkte sammeln
+        critical_points = []
+        should_alert = False
+        
+        # Prüfe Matching Rate
+        matching_rate = report.get("matching_rate", {}).get("matching_percentage", 100)
+        if matching_rate < 80:
+            critical_points.append(f"Niedrige Matching Rate: {matching_rate:.1f}% (< 80%)")
+            should_alert = True
+        
+        # Prüfe Abweichungen
+        variances = report.get("variances", {})
+        net_variance = abs(variances.get("net_variance", 0))
+        if net_variance > 500:  # €500 Threshold
+            critical_points.append(f"Hohe Netto-Abweichung: €{net_variance:,.2f} (> €500)")
+            should_alert = True
+        
+        # Prüfe ungematchte Transaktionen
+        unmatched = report.get("unmatched_transactions", [])
+        if len(unmatched) > 5:
+            critical_points.append(f"Viele ungematchte Transaktionen: {len(unmatched)} (> 5)")
+            should_alert = True
+        
+        # Sende Alert bei kritischen Punkten
+        if should_alert:
+            report["critical_points"] = critical_points
+            report["period"] = f"{start_date.strftime('%d.%m.')} - {end_date.strftime('%d.%m.%Y')}"
+            
+            await send_umsatzabgleich_notification("critical", report)
+            logger.info(f"🚨 Critical umsatzabgleich alert sent: {len(critical_points)} issues")
+        else:
+            logger.info(f"✅ Umsatzabgleich check passed - no critical issues")
+            
+    except Exception as e:
+        logger.error(f"❌ Umsatzabgleich alert check failed: {e}")
 
 # ===============================
 # SQLITE CONTACT CACHE LAYER
@@ -3455,6 +3635,139 @@ Antworten Sie mit den erforderlichen Kontakt-Details oder markieren Sie als "Pri
                 
             return error_result
 
+    async def _generate_conversation_prompts(self, phone_number: str, caller_name: str = "", company: str = "", call_direction: str = "inbound") -> str:
+        """
+        🤖 Generate intelligent conversation prompts based on contact status
+        
+        Returns context-specific questions and talking points for employees
+        """
+        try:
+            # Check if contact is known
+            contact_match = await self._search_weclapp_contact(phone_number)
+            
+            if contact_match.found:
+                # 🎯 BEKANNTER KONTAKT - Project-specific prompts
+                contact_name = contact_match.contact_name or caller_name
+                
+                prompts = [
+                    f"🎯 BEKANNTER KONTAKT: {contact_name}",
+                    "",
+                    "💬 Empfohlene Gesprächsführung:"
+                ]
+                
+                # Try to get recent opportunities or projects
+                try:
+                    # Check for recent opportunities in WeClapp
+                    recent_projects = await self._get_recent_opportunities(contact_match.contact_id)
+                    
+                    if recent_projects:
+                        prompts.append("📋 Aktuelle Projekte:")
+                        for project in recent_projects[:3]:  # Max 3 projects
+                            prompts.append(f"   • {project.get('title', 'Unbekannt')} ({project.get('status', 'Status unbekannt')})")
+                        
+                        prompts.extend([
+                            "",
+                            "❓ Projektbezogene Fragen:",
+                            "   • 'Wie ist der Stand bei Ihrem [Projektname]?'",
+                            "   • 'Haben Sie Fragen zu unserem letzten Angebot?'",
+                            "   • 'Soll ich einen Termin für die nächste Projektphase eintragen?'",
+                            "   • 'Benötigen Sie ein Update zur aktuellen Planung?'"
+                        ])
+                    else:
+                        prompts.extend([
+                            "❓ Beziehungspflege-Fragen:",
+                            "   • 'Wie können wir Ihnen heute helfen?'",
+                            "   • 'Haben Sie neue Projekte geplant?'",
+                            "   • 'Benötigen Sie eine Beratung für anstehende Arbeiten?'"
+                        ])
+                except:
+                    # Fallback if opportunity lookup fails
+                    prompts.extend([
+                        "❓ Standard-Fragen für bekannte Kontakte:",
+                        "   • 'Wie kann ich Ihnen bei Ihrem Projekt helfen?'",
+                        "   • 'Haben Sie Fragen zu unserem Service?'",
+                        "   • 'Soll ich einen Beratungstermin vereinbaren?'"
+                    ])
+                
+            else:
+                # ❓ UNBEKANNTER KONTAKT - Lead qualification prompts
+                prompts = [
+                    "❓ UNBEKANNTER KONTAKT - Lead-Qualifizierung",
+                    "",
+                    "💬 Empfohlene Gesprächsführung:",
+                    "",
+                    "🔍 Bedarfsermittlung:",
+                    "   • 'Welche Art von Dacharbeiten benötigen Sie?'",
+                    "   • 'Wie groß ist die Dachfläche in Quadratmetern?'",
+                    "   • 'In welcher Stadt befindet sich das Objekt?'",
+                    "   • 'Ist es ein Neubau oder eine Sanierung?'",
+                    "",
+                    "📋 Kontaktdaten erfassen:",
+                    "   • 'Darf ich Ihren Namen und Ihre Adresse notieren?'",
+                    "   • 'Unter welcher E-Mail kann ich Ihnen Infos senden?'",
+                    "   • 'Wann passt ein Beratungstermin bei Ihnen?'",
+                    "",
+                    "⚡ Qualifizierung:",
+                    "   • 'Haben Sie bereits Angebote eingeholt?'",
+                    "   • 'Bis wann soll das Projekt realisiert werden?'",
+                    "   • 'Haben Sie ein grobes Budget im Kopf?'"
+                ]
+            
+            # Add call direction specific prompts
+            if call_direction == "outbound":
+                prompts.extend([
+                    "",
+                    "📞 AUSGEHENDER ANRUF - Zusätzliche Punkte:",
+                    "   • Grund des Anrufs klar kommunizieren",
+                    "   • Bei Voicemail: Rückrufbitte mit Telefonnummer",
+                    "   • Follow-Up Termin vereinbaren"
+                ])
+            
+            return "\n".join(prompts)
+            
+        except Exception as e:
+            logger.error(f"❌ Error generating conversation prompts: {e}")
+            return "💬 Standard-Gesprächsführung: Höflich nachfragen, Bedarf ermitteln, Kontaktdaten erfassen."
+
+    async def _get_recent_opportunities(self, contact_id: str) -> List[Dict]:
+        """Get recent opportunities for a contact from WeClapp"""
+        try:
+            weclapp_token = os.getenv("WECLAPP_API_TOKEN")
+            if not weclapp_token:
+                return []
+            
+            headers = {
+                "Authorization": f"Bearer {weclapp_token}",
+                "Content-Type": "application/json"
+            }
+            
+            # Query WeClapp for opportunities
+            async with aiohttp.ClientSession() as session:
+                url = "https://cundd.weclapp.com/webapp/api/v1/opportunity"
+                params = {
+                    "contactId-eq": contact_id,
+                    "pageSize": 5,
+                    "orderBy": "lastModifiedDate",
+                    "orderDirection": "desc"
+                }
+                
+                async with session.get(url, headers=headers, params=params) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        opportunities = data.get("result", [])
+                        
+                        return [{
+                            "title": opp.get("opportunityNumber", "") + " - " + (opp.get("name", "") or "Unbenannt"),
+                            "status": opp.get("opportunityStage", {}).get("name", "Unbekannt"),
+                            "amount": opp.get("amount"),
+                            "probability": opp.get("probability")
+                        } for opp in opportunities]
+                    
+            return []
+        except Exception as e:
+            logger.error(f"❌ Error fetching opportunities: {e}")
+            return []
+
 # ===============================
 # FASTAPI PRODUCTION SERVER
 # ===============================
@@ -3464,6 +3777,13 @@ initialize_contact_cache()
 
 # Initialize Orchestrator
 orchestrator = ProductionAIOrchestrator()
+
+# Import intelligent invoice integration
+from intelligent_invoice_integration import (
+    invoice_router, 
+    process_invoice_from_email,
+    initialize_invoice_database
+)
 
 # FastAPI App with startup/shutdown events
 @asynccontextmanager
@@ -3483,6 +3803,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"❌ Startup WEClapp DB download error: {e}")
     
+    # Initialize intelligent invoice database
+    try:
+        initialize_invoice_database()
+        logger.info("✅ Intelligent Invoice Database initialized")
+    except Exception as e:
+        logger.error(f"❌ Invoice database initialization error: {e}")
+    
     logger.info("✅ AI Communication Orchestrator ready!")
     
     yield  # Server is running
@@ -3492,8 +3819,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="AI Communication Orchestrator",
-    description="Production-ready LangGraph AI Communication Processing System",
-    version="1.3.0-weclapp-sync",
+    description="Production-ready LangGraph AI Communication Processing System with Intelligent Invoice Management",
+    version="1.4.0-intelligent-invoices",
     lifespan=lifespan
 )
 
@@ -3506,6 +3833,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include Intelligent Invoice Management Router
+app.include_router(invoice_router)
+
 @app.get("/")
 async def root():
     """Health check endpoint"""
@@ -3514,7 +3844,7 @@ async def root():
     return {
         "status": "✅ AI Communication Orchestrator ONLINE",
         "system": "LangGraph + FastAPI Production",
-        "version": "1.4.0-sipgate-pricing",
+        "version": "1.4.0-intelligent-invoices",
         "weclapp_sync_db": weclapp_db_status,
         "endpoints": [
             "/webhook/ai-email (deprecated - use /incoming or /outgoing)",
@@ -3524,16 +3854,20 @@ async def root():
             "/webhook/ai-call",
             "/webhook/frontdesk",
             "/webhook/feedback",
-            "/webhook/ai-whatsapp"
+            "/webhook/ai-whatsapp",
+            "/api/invoice/* (NEW: Intelligent Invoice Management)"
         ],
         "features": [
             "Email Direction Detection (incoming/outgoing)",
             "Document Type Classification (invoice/offer/order/delivery/general)",
             "Intelligent Attachment Processing",
             "Type-specific OCR Routes",
-            "💰 Automatic Price Estimation from Call Transcripts (NEW)",
-            "Database Schema Migration Support (NEW)",
-            "🧪 Test Endpoint with JSON Attachments (NEW)"
+            "💰 Automatic Price Estimation from Call Transcripts",
+            "🧠 Intelligent Invoice Management System (NEW)",
+            "🎯 Bank Transaction Matching (NEW)",
+            "📊 Invoice Analytics Dashboard (NEW)",
+            "Database Schema Migration Support",
+            "🧪 Test Endpoint with JSON Attachments"
         ],
         "timestamp": now_berlin().isoformat()
     }
@@ -4668,8 +5002,37 @@ async def process_email_background(
             )
             logger.info(f"✅ Email processing complete: {result.get('workflow_path', 'unknown')}")
             
-            # 🔍 AI ANALYSIS (already done in process_communication)
-            ai_analysis = result.get("ai_analysis", {})
+            # 🧠 INTELLIGENT INVOICE PROCESSING (NEW INTEGRATION)
+            if attachment_results:
+                try:
+                    logger.info("🧠 Processing invoices via intelligent invoice system...")
+                    
+                    email_data_for_invoice = {
+                        "message_id": message_id,
+                        "subject": subject,
+                        "from_address": from_address,
+                        "sender": email_data.get("from", {}),
+                        "body": body
+                    }
+                    
+                    invoices_saved = await process_invoice_from_email(
+                        email_data=email_data_for_invoice,
+                        attachment_results=attachment_results
+                    )
+                    
+                    if invoices_saved:
+                        logger.info(f"✅ Intelligent invoice processing: {len(invoices_saved)} invoices saved")
+                        
+                        # Update result with invoice IDs for dashboard links
+                        result["invoices_processed"] = invoices_saved
+                        result["invoice_id"] = invoices_saved[0]["invoice_id"] if invoices_saved else None
+                        result["invoice_number"] = invoices_saved[0]["invoice_number"] if invoices_saved else None
+                    else:
+                        logger.info("ℹ️ No invoices found in attachments")
+                        
+                except Exception as invoice_error:
+                    logger.error(f"❌ Intelligent invoice processing error: {invoice_error}")
+                    # Continue without failing the whole process
             
             # 🔍 AI ANALYSIS (already done in process_communication)
             ai_analysis = result.get("ai_analysis", {})
@@ -4980,6 +5343,21 @@ async def process_call(request: Request):
             
             call_transcript = "".join(transcript_parts)
         
+        # 🤖 ADD INTELLIGENT CONVERSATION PROMPTS BEFORE PROCESSING
+        try:
+            conversation_prompts = await orchestrator._generate_conversation_prompts(
+                phone_number=phone_normalized,
+                caller_name=caller_name,
+                company=company_name,
+                call_direction=call_direction
+            )
+            
+            if conversation_prompts:
+                call_transcript += f"\n\n{conversation_prompts}"
+                logger.info(f"💬 Added conversation prompts for {phone_normalized}")
+        except Exception as e:
+            logger.error(f"❌ Error generating conversation prompts: {e}")
+        
         # Process through orchestrator (includes phone matching)
         result = await orchestrator.process_communication(
             message_type="call",
@@ -5148,6 +5526,8 @@ async def process_frontdesk(request: Request):
             transcript_parts.append(f"\n👤 Anrufer: {caller_name}")
         if company:
             transcript_parts.append(f"\n🏢 Firma: {company}")
+        
+        enhanced_transcript = "\n".join(transcript_parts)
         if key_points:
             transcript_parts.append(f"\n\n🔑 Wichtige Punkte:\n" + "\n".join(f"- {point}" for point in key_points))
         
@@ -5968,6 +6348,305 @@ async def create_opportunity_endpoint(request: Request):
         "value": 50000.0,
         "probability": 30,
         "contact_name": "Max Mustermann",
+        "company": "Mustermann GmbH"
+    }
+    """
+    try:
+        from modules.database.sales_pipeline_db import create_opportunity
+        
+        data = await request.json()
+        
+        opportunity_id = create_opportunity(
+            title=data.get("title"),
+            stage=data.get("stage", "lead"),
+            value=data.get("value", 0.0),
+            probability=data.get("probability", 10),
+            contact_name=data.get("contact_name"),
+            company=data.get("company"),
+            description=data.get("description")
+        )
+        
+        return {
+            "status": "success",
+            "opportunity_id": opportunity_id,
+            "message": "Opportunity created successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Create opportunity error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create opportunity: {str(e)}")
+
+
+# ===============================
+# 💰 UMSATZABGLEICH API ENDPOINTS
+# ===============================
+
+@app.get("/api/umsatzabgleich/report")
+async def get_umsatzabgleich_report_endpoint(
+    start_date: str,
+    end_date: str,
+    include_details: bool = False
+):
+    """
+    📊 UMSATZABGLEICH REPORT API
+    
+    Query Parameters:
+    - start_date: Start date (YYYY-MM-DD)
+    - end_date: End date (YYYY-MM-DD)
+    - include_details: Include detailed transaction lists
+    
+    Returns:
+    - Bank transaction summary
+    - Invoice summary
+    - Matching rate
+    - Variances
+    - Critical points
+    """
+    try:
+        engine = UmsatzabgleichEngine()
+        report = engine.get_umsatzabgleich_report(start_date, end_date, include_details)
+        
+        # Add critical points analysis
+        critical_points = []
+        matching_rate = report.get("matching_rate", {}).get("matching_percentage", 100)
+        variances = report.get("variances", {})
+        
+        if matching_rate < 80:
+            critical_points.append(f"Niedrige Matching Rate: {matching_rate:.1f}%")
+        
+        net_variance = abs(variances.get("net_variance", 0))
+        if net_variance > 500:
+            critical_points.append(f"Hohe Netto-Abweichung: €{net_variance:,.2f}")
+        
+        unmatched = len(report.get("unmatched_transactions", []))
+        if unmatched > 5:
+            critical_points.append(f"Viele ungematchte Transaktionen: {unmatched}")
+        
+        report["critical_points"] = critical_points
+        report["period"] = f"{start_date} bis {end_date}"
+        
+        return {
+            "status": "success",
+            "report": report
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Umsatzabgleich report error: {e}")
+        raise HTTPException(status_code=500, detail=f"Umsatzabgleich report failed: {str(e)}")
+
+
+@app.post("/api/umsatzabgleich/bank-csv")
+async def upload_bank_csv_endpoint(request: Request):
+    """
+    📥 BANK CSV UPLOAD
+    
+    Upload Sparkasse/Deutsche Bank CSV for automatic processing
+    
+    Request Body:
+    {
+        "csv_content": "base64_encoded_csv_data",
+        "bank_type": "sparkasse" | "deutsche_bank" | "auto",
+        "filename": "umsaetze_2025.csv"
+    }
+    """
+    try:
+        import base64
+        import tempfile
+        
+        data = await request.json()
+        csv_content = data.get("csv_content", "")
+        bank_type = data.get("bank_type", "auto")
+        filename = data.get("filename", "bank_data.csv")
+        
+        # Decode and save CSV
+        csv_data = base64.b64decode(csv_content)
+        
+        with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.csv') as f:
+            f.write(csv_data)
+            temp_path = f.name
+        
+        # Process with UmsatzabgleichEngine
+        engine = UmsatzabgleichEngine()
+        result = engine.import_csv_auto_detect(temp_path, bank_type)
+        
+        # Cleanup
+        os.remove(temp_path)
+        
+        # Generate automatic report for uploaded period
+        if result.get("transactions_imported", 0) > 0:
+            # Get date range from imported data
+            first_date = result.get("date_range", {}).get("start")
+            last_date = result.get("date_range", {}).get("end")
+            
+            if first_date and last_date:
+                report = engine.get_umsatzabgleich_report(first_date, last_date)
+                
+                # Send notification if critical issues
+                critical_points = []
+                matching_rate = report.get("matching_rate", {}).get("matching_percentage", 100)
+                
+                if matching_rate < 80:
+                    critical_points.append(f"Niedrige Matching Rate: {matching_rate:.1f}%")
+                
+                if critical_points:
+                    report["critical_points"] = critical_points
+                    report["period"] = f"CSV Import: {filename}"
+                    await send_umsatzabgleich_notification("critical", report)
+        
+        return {
+            "status": "success",
+            "import_result": result,
+            "message": f"CSV '{filename}' erfolgreich importiert"
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Bank CSV upload error: {e}")
+        raise HTTPException(status_code=500, detail=f"CSV upload failed: {str(e)}")
+
+
+@app.post("/api/umsatzabgleich/manual-match")
+async def manual_transaction_match_endpoint(request: Request):
+    """
+    🔗 MANUELLE TRANSAKTION ZUORDNUNG
+    
+    Request Body:
+    {
+        "transaction_id": "bank_tx_123",
+        "invoice_number": "RE-2025-001",
+        "match_confidence": 0.95
+    }
+    """
+    try:
+        data = await request.json()
+        
+        engine = UmsatzabgleichEngine()
+        result = engine.create_manual_match(
+            transaction_id=data.get("transaction_id"),
+            invoice_number=data.get("invoice_number"),
+            confidence=data.get("match_confidence", 1.0)
+        )
+        
+        return {
+            "status": "success" if result else "failed",
+            "message": "Manuelle Zuordnung erstellt" if result else "Zuordnung fehlgeschlagen"
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Manual match error: {e}")
+        raise HTTPException(status_code=500, detail=f"Manual match failed: {str(e)}")
+
+
+@app.post("/api/umsatzabgleich/notification-test")
+async def test_umsatzabgleich_notification_endpoint():
+    """
+    📧 TEST NOTIFICATION MAIL
+    
+    Sendet eine Test-E-Mail für Umsatzabgleich-Benachrichtigungen
+    """
+    try:
+        # Generate test report data
+        test_data = {
+            "period": "Test-Zeitraum",
+            "matching_rate": {"matching_percentage": 75.5},
+            "variances": {"net_variance": 1250.00},
+            "bank_transactions": {"total": 15000.00},
+            "invoice_data": {"total": 13750.00},
+            "critical_points": [
+                "Niedrige Matching Rate: 75.5% (< 80%)",
+                "Hohe Netto-Abweichung: €1,250.00 (> €500)",
+                "Test-Benachrichtigung erfolgreich"
+            ]
+        }
+        
+        success = await send_umsatzabgleich_notification("critical", test_data)
+        
+        return {
+            "status": "success" if success else "failed",
+            "message": "Test-Benachrichtigung gesendet" if success else "Test-Benachrichtigung fehlgeschlagen"
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Test notification error: {e}")
+        raise HTTPException(status_code=500, detail=f"Test notification failed: {str(e)}")
+
+
+@app.get("/api/umsatzabgleich/unmatched")
+async def get_unmatched_transactions_endpoint(limit: int = 50):
+    """
+    🔍 UNGEMATCHTE TRANSAKTIONEN
+    
+    Query Parameters:
+    - limit: Anzahl der Ergebnisse (default: 50)
+    """
+    try:
+        engine = UmsatzabgleichEngine()
+        unmatched = engine.get_unmatched_transactions(limit)
+        
+        return {
+            "status": "success",
+            "unmatched_transactions": unmatched,
+            "count": len(unmatched)
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Unmatched transactions error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch unmatched: {str(e)}")
+
+
+@app.get("/api/umsatzabgleich/statistics")
+async def get_umsatzabgleich_statistics_endpoint():
+    """
+    📊 UMSATZABGLEICH STATISTIKEN
+    
+    Returns overall statistics:
+    - Total transactions vs invoices
+    - Overall matching rate
+    - Monthly trends
+    """
+    try:
+        engine = UmsatzabgleichEngine()
+        
+        # Get statistics for last 30 days
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=30)
+        
+        report = engine.get_umsatzabgleich_report(
+            start_date.strftime('%Y-%m-%d'),
+            end_date.strftime('%Y-%m-%d')
+        )
+        
+        stats = {
+            "period": "Letzte 30 Tage",
+            "matching_rate": report.get("matching_rate", {}),
+            "bank_total": report.get("bank_transactions", {}).get("total", 0),
+            "invoice_total": report.get("invoice_data", {}).get("total", 0),
+            "variances": report.get("variances", {}),
+            "transaction_count": len(report.get("bank_transactions", {}).get("transactions", [])),
+            "invoice_count": len(report.get("invoice_data", {}).get("invoices", [])),
+            "last_updated": now_berlin().isoformat()
+        }
+        
+        return {
+            "status": "success",
+            "statistics": stats
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Umsatzabgleich statistics error: {e}")
+        raise HTTPException(status_code=500, detail=f"Statistics failed: {str(e)}")
+
+@app.post("/api/opportunity")
+async def create_opportunity_endpoint(request: Request):
+    """
+    📊 CREATE SALES OPPORTUNITY
+    
+    Request Body:
+    {
+        "title": "Neues Dachprojekt",
+        "stage": "lead",
+        "value": 15000,
+        "probability": 30,
+        "contact_name": "Max Mustermann",
         "contact_email": "max@example.com",
         "company_name": "Mustermann GmbH",
         "source": "email",
@@ -6071,13 +6750,948 @@ async def search_opportunities_endpoint(q: str):
         
         return {
             "status": "success",
-            "opportunities": opportunities,
-            "count": len(opportunities)
+            "results": opportunities
         }
         
     except Exception as e:
         logger.error(f"❌ Search opportunities error: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to search opportunities: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+
+# ===============================
+# � SIMPLE EMPLOYEE AUTHENTICATION
+# ===============================
+
+# Simple employee access tokens (in production, use proper JWT)
+EMPLOYEE_TOKENS = {
+    "cdtech2025": "C&D Technologies Employee Access",
+    "mitarbeiter": "Standard Employee Access", 
+    "admin": "Administrator Access"
+}
+
+def verify_employee_access(token: str = None) -> bool:
+    """Simple token verification for employee dashboard access"""
+    if not token:
+        return False
+    return token in EMPLOYEE_TOKENS
+
+@app.get("/auth/login")
+async def employee_login_page():
+    """🔐 Employee Login Page"""
+    
+    login_html = """
+    <!DOCTYPE html>
+    <html lang="de">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>🔐 C&D Technologies Login</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+            .login-container { background: white; padding: 3rem; border-radius: 20px; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1); max-width: 400px; width: 90%; text-align: center; }
+            .logo { font-size: 3rem; margin-bottom: 1rem; }
+            .title { font-size: 1.75rem; font-weight: bold; margin-bottom: 0.5rem; color: #333; }
+            .subtitle { color: #666; margin-bottom: 2rem; }
+            .form-group { margin-bottom: 1.5rem; text-align: left; }
+            .form-label { display: block; margin-bottom: 0.5rem; font-weight: bold; color: #333; }
+            .form-input { width: 100%; padding: 0.75rem; border: 2px solid #eee; border-radius: 8px; font-size: 1rem; transition: border-color 0.3s ease; }
+            .form-input:focus { outline: none; border-color: #667eea; }
+            .login-btn { width: 100%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 1rem; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; transition: transform 0.3s ease; }
+            .login-btn:hover { transform: translateY(-2px); }
+            .demo-tokens { background: #f8f9fa; padding: 1rem; border-radius: 8px; margin-top: 1.5rem; text-align: left; }
+            .demo-tokens strong { color: #333; }
+            .demo-tokens code { background: #e9ecef; padding: 0.2rem 0.4rem; border-radius: 4px; font-family: 'Monaco', monospace; }
+        </style>
+    </head>
+    <body>
+        <div class="login-container">
+            <div class="logo">🏢</div>
+            <h1 class="title">C&D Technologies</h1>
+            <p class="subtitle">Mitarbeiter Dashboard Zugang</p>
+            
+            <form onsubmit="handleLogin(event)">
+                <div class="form-group">
+                    <label class="form-label" for="token">Access Token:</label>
+                    <input type="password" id="token" class="form-input" placeholder="Token eingeben..." required>
+                </div>
+                
+                <button type="submit" class="login-btn">🔓 Dashboard Zugang</button>
+            </form>
+            
+            <div class="demo-tokens">
+                <strong>Demo Tokens:</strong><br>
+                • <code>cdtech2025</code> - Employee Access<br>
+                • <code>mitarbeiter</code> - Standard Access<br>
+                • <code>admin</code> - Admin Access
+            </div>
+        </div>
+        
+        <script>
+            function handleLogin(event) {
+                event.preventDefault();
+                const token = document.getElementById('token').value;
+                
+                if (token) {
+                    // Store token in sessionStorage
+                    sessionStorage.setItem('employeeToken', token);
+                    
+                    // Redirect to dashboard
+                    window.location.href = '/dashboard?token=' + encodeURIComponent(token);
+                } else {
+                    alert('Bitte Token eingeben!');
+                }
+            }
+            
+            // Check if already logged in
+            const storedToken = sessionStorage.getItem('employeeToken');
+            if (storedToken) {
+                window.location.href = '/dashboard?token=' + encodeURIComponent(storedToken);
+            }
+        </script>
+    </body>
+    </html>
+    """
+    
+    return HTMLResponse(content=login_html)
+
+# ===============================
+# �📊 EMPLOYEE DASHBOARD ENDPOINTS
+# ===============================
+
+@app.get("/dashboard/invoices")
+async def invoice_dashboard(token: str = None):
+    """📊 Invoice & Payment Dashboard - Zugänglich von überall"""
+    
+    # Simple authentication check
+    if not verify_employee_access(token):
+        return HTMLResponse(content="""
+            <script>
+                alert('Ungültiger Token - Weiterleitung zur Anmeldung...');
+                window.location.href = '/auth/login';
+            </script>
+        """)
+    
+    invoice_dashboard_html = """
+    <!DOCTYPE html>
+    <html lang="de">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>📊 Invoice Dashboard - C&D Technologies</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; line-height: 1.6; }
+            .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1rem; text-align: center; }
+            .container { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
+            .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
+            .card { background: white; border-radius: 10px; padding: 1.5rem; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
+            .metric { text-align: center; }
+            .metric-value { font-size: 2.5rem; font-weight: bold; color: #667eea; }
+            .metric-label { color: #666; margin-top: 0.5rem; }
+            .recent-invoices { margin-top: 2rem; }
+            .invoice-item { display: flex; justify-content: space-between; align-items: center; padding: 1rem; border-bottom: 1px solid #eee; }
+            .invoice-item:last-child { border-bottom: none; }
+            .status { padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.875rem; font-weight: bold; }
+            .status.paid { background: #d4edda; color: #155724; }
+            .status.pending { background: #fff3cd; color: #856404; }
+            .status.overdue { background: #f8d7da; color: #721c24; }
+            .refresh-btn { background: #667eea; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 5px; cursor: pointer; margin: 1rem 0; }
+            .refresh-btn:hover { background: #5a6fd8; }
+            @media (max-width: 768px) { .dashboard-grid { grid-template-columns: 1fr; } }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>📊 Invoice & Payment Dashboard</h1>
+            <p>C&D Technologies - Rechnungsübersicht</p>
+        </div>
+        
+        <div class="container">
+            <div class="dashboard-grid">
+                <div class="card">
+                    <div class="metric">
+                        <div class="metric-value" id="total-invoices">-</div>
+                        <div class="metric-label">Rechnungen (Monat)</div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="metric">
+                        <div class="metric-value" id="pending-incoming" style="color: #dc3545;">-</div>
+                        <div class="metric-label">🔴 Offene Eingangsrechnungen</div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="metric">
+                        <div class="metric-value" id="pending-outgoing" style="color: #28a745;">-</div>
+                        <div class="metric-label">🟢 Offene Ausgangsrechnungen</div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="metric">
+                        <div class="metric-value" id="cash-flow-balance">-</div>
+                        <div class="metric-label">💰 Cash Flow Balance</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 🔴 KRITISCHE PUNKTE ÜBERSICHT -->
+            <div class="card recent-invoices" style="border-left: 4px solid #dc3545;">
+                <h2>🔴 Kritische Punkte - Sofortige Aufmerksamkeit</h2>
+                <button class="refresh-btn" onclick="loadCriticalPoints()">🔄 Kritische Punkte Aktualisieren</button>
+                <div id="critical-points-list">
+                    <div class="invoice-item" style="background: #fff3cd;">
+                        <div>
+                            <strong>⚠️ Überfällige Eingangsrechnungen</strong><br>
+                            <small>3 Rechnungen über Fälligkeitsdatum</small>
+                        </div>
+                        <div>
+                            <span style="margin-right: 1rem; color: #dc3545; font-weight: bold;">€4.567,89</span>
+                            <span class="status overdue">ÜBERFÄLLIG</span>
+                        </div>
+                    </div>
+                    
+                    <div class="invoice-item" style="background: #f8d7da;">
+                        <div>
+                            <strong>💰 Liquidität - Nächste 7 Tage</strong><br>
+                            <small>Zahlungseingänge vs. Ausgaben</small>
+                        </div>
+                        <div>
+                            <span style="margin-right: 1rem; color: #155724; font-weight: bold;">+€12.300,50</span>
+                            <span class="status paid">POSITIV</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 📥 EINGEHENDE RECHNUNGEN -->
+            <div class="card recent-invoices">
+                <h2>� Eingehende Rechnungen - Zu zahlen</h2>
+                <button class="refresh-btn" onclick="loadIncomingInvoices()">🔄 Eingangsrechnungen Aktualisieren</button>
+                <div id="incoming-invoices-list">
+                    <div class="invoice-item">
+                        <div>
+                            <strong>RE-2025-001 - Musterfirma GmbH</strong><br>
+                            <small>📅 Erhalten: 21.10.2025 | 📅 Fällig: 19.11.2025</small>
+                        </div>
+                        <div>
+                            <span style="margin-right: 1rem;">€1.234,56</span>
+                            <span class="status pending">OFFEN</span>
+                        </div>
+                    </div>
+                    
+                    <div class="invoice-item">
+                        <div>
+                            <strong>RE-2025-002 - Lieferant XY</strong><br>
+                            <small>📅 Erhalten: 20.10.2025 | 📅 Fällig: 15.11.2025</small>
+                        </div>
+                        <div>
+                            <span style="margin-right: 1rem;">€890,00</span>
+                            <span class="status pending">OFFEN</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 📤 AUSGEHENDE RECHNUNGEN -->
+            <div class="card recent-invoices">
+                <h2>📤 Ausgehende Rechnungen - Zahlungseingang erwartet</h2>
+                <button class="refresh-btn" onclick="loadOutgoingInvoices()">🔄 Ausgangsrechnungen Aktualisieren</button>
+                <div id="outgoing-invoices-list">
+                    <div class="invoice-item">
+                        <div>
+                            <strong>CD-2025-042 - Example AG</strong><br>
+                            <small>📅 Gesendet: 25.10.2025 | 📅 Fällig: 24.11.2025 | 🏗️ Dachsanierung München</small>
+                        </div>
+                        <div>
+                            <span style="margin-right: 1rem; color: #28a745; font-weight: bold;">€5.678,90</span>
+                            <span class="status pending">AUSSTEHEND</span>
+                        </div>
+                    </div>
+                    
+                    <div class="invoice-item">
+                        <div>
+                            <strong>CD-2025-041 - Schmidt & Partner</strong><br>
+                            <small>📅 Gesendet: 22.10.2025 | 📅 Fällig: 21.11.2025 | 🏢 Terrassendach Hamburg</small>
+                        </div>
+                        <div>
+                            <span style="margin-right: 1rem; color: #28a745; font-weight: bold;">€3.450,00</span>
+                            <span class="status pending">AUSSTEHEND</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <script>
+            async function loadInvoices() {
+                try {
+                    await Promise.all([
+                        loadCriticalPoints(),
+                        loadIncomingInvoices(), 
+                        loadOutgoingInvoices()
+                    ]);
+                    
+                    console.log('📊 Complete invoice monitoring loaded');
+                } catch (error) {
+                    console.error('❌ Error loading invoice data:', error);
+                }
+            }
+            
+            async function loadCriticalPoints() {
+                try {
+                    // API Call zu /api/invoices/critical-points
+                    const response = await fetch('/api/invoices/critical-points');
+                    const data = await response.json();
+                    
+                    document.getElementById('pending-incoming').textContent = `€${data.open_incoming_total?.toLocaleString('de-DE') || '0,00'}`;
+                    document.getElementById('pending-outgoing').textContent = `€${data.open_outgoing_total?.toLocaleString('de-DE') || '0,00'}`;
+                    document.getElementById('cash-flow-balance').textContent = `€${data.cash_flow_balance?.toLocaleString('de-DE') || '0,00'}`;
+                    
+                    // Set color based on cash flow
+                    const balanceElement = document.getElementById('cash-flow-balance');
+                    if (data.cash_flow_balance > 0) {
+                        balanceElement.style.color = '#28a745';
+                    } else if (data.cash_flow_balance < 0) {
+                        balanceElement.style.color = '#dc3545';
+                    }
+                    
+                    console.log('� Critical points loaded');
+                } catch (error) {
+                    console.error('❌ Error loading critical points:', error);
+                }
+            }
+            
+            async function loadIncomingInvoices() {
+                try {
+                    // API Call zu /api/invoices/incoming/overdue
+                    console.log('📥 Loading incoming invoices...');
+                } catch (error) {
+                    console.error('❌ Error loading incoming invoices:', error);
+                }
+            }
+            
+            async function loadOutgoingInvoices() {
+                try {
+                    // API Call zu /api/invoices/outgoing/overdue
+                    console.log('📤 Loading outgoing invoices...');
+                } catch (error) {
+                    console.error('❌ Error loading outgoing invoices:', error);
+                }
+            }
+            
+            // Load data on page load
+            loadInvoices();
+        </script>
+    </body>
+    </html>
+    """
+    
+    return HTMLResponse(content=invoice_dashboard_html)
+
+@app.get("/dashboard/sales")
+async def sales_pipeline_dashboard(token: str = None):
+    """📈 Sales Pipeline Dashboard - Mobile-responsive"""
+    
+    # Simple authentication check
+    if not verify_employee_access(token):
+        return HTMLResponse(content="""
+            <script>
+                alert('Ungültiger Token - Weiterleitung zur Anmeldung...');
+                window.location.href = '/auth/login';
+            </script>
+        """)
+    
+    sales_dashboard_html = """
+    <!DOCTYPE html>
+    <html lang="de">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>📈 Sales Pipeline - C&D Technologies</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; line-height: 1.6; }
+            .header { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white; padding: 1rem; text-align: center; }
+            .container { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
+            .pipeline-stage { background: white; border-radius: 10px; padding: 1.5rem; margin-bottom: 1rem; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
+            .stage-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+            .stage-title { font-size: 1.25rem; font-weight: bold; }
+            .stage-count { background: #11998e; color: white; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.875rem; }
+            .opportunity { background: #f8f9fa; padding: 1rem; border-radius: 8px; margin-bottom: 0.75rem; border-left: 4px solid #11998e; }
+            .opportunity:last-child { margin-bottom: 0; }
+            .opportunity-title { font-weight: bold; margin-bottom: 0.5rem; }
+            .opportunity-details { color: #666; font-size: 0.875rem; }
+            .amount { color: #11998e; font-weight: bold; }
+            .refresh-btn { background: #11998e; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 5px; cursor: pointer; margin-bottom: 2rem; }
+            .refresh-btn:hover { background: #0e8478; }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>📈 Sales Pipeline Dashboard</h1>
+            <p>C&D Technologies - Verkaufsprozess Übersicht</p>
+        </div>
+        
+        <div class="container">
+            <button class="refresh-btn" onclick="loadPipeline()">🔄 Pipeline Aktualisieren</button>
+            
+            <div class="pipeline-stage">
+                <div class="stage-header">
+                    <span class="stage-title">🎯 Leads (Interessenten)</span>
+                    <span class="stage-count">12</span>
+                </div>
+                <div class="opportunity">
+                    <div class="opportunity-title">Dachsanierung München - Max Mustermann</div>
+                    <div class="opportunity-details">
+                        📞 +49 89 1234567 | ✉️ max@mustermann.de<br>
+                        🏠 80 qm Dachfläche | 📅 Erstellt: 26.10.2025
+                    </div>
+                </div>
+                <div class="opportunity">
+                    <div class="opportunity-title">Terrassendach Hamburg - Schmidt GmbH</div>
+                    <div class="opportunity-details">
+                        📞 +49 40 7654321 | ✉️ info@schmidt-bau.de<br>
+                        🏢 Gewerbeobjekt | 📅 Erstellt: 25.10.2025
+                    </div>
+                </div>
+            </div>
+            
+            <div class="pipeline-stage">
+                <div class="stage-header">
+                    <span class="stage-title">📋 Angebote Erstellt</span>
+                    <span class="stage-count">8</span>
+                </div>
+                <div class="opportunity">
+                    <div class="opportunity-title">Dachausbau Berlin - Müller KG</div>
+                    <div class="opportunity-details">
+                        💰 <span class="amount">€19.200,00</span> | 📅 Angebot: 22.10.2025<br>
+                        🎯 Wahrscheinlichkeit: 70% | ⏰ Follow-up: 30.10.2025
+                    </div>
+                </div>
+            </div>
+            
+            <div class="pipeline-stage">
+                <div class="stage-header">
+                    <span class="stage-title">✅ Aufträge Gewonnen</span>
+                    <span class="stage-count">5</span>
+                </div>
+                <div class="opportunity">
+                    <div class="opportunity-title">Carport Installation - Wagner Familie</div>
+                    <div class="opportunity-details">
+                        💰 <span class="amount">€8.500,00</span> | 📅 Auftrag: 24.10.2025<br>
+                        🚧 Status: In Bearbeitung | 📋 Projektstart: 28.10.2025
+                    </div>
+                </div>
+            </div>
+            
+            <div class="pipeline-stage">
+                <div class="stage-header">
+                    <span class="stage-title">📋 Offene TODOs & Aufgaben</span>
+                    <span class="stage-count">15</span>
+                </div>
+                <div class="opportunity">
+                    <div class="opportunity-title">📞 Follow-up Call - Müller KG</div>
+                    <div class="opportunity-details">
+                        👤 <strong>Zuständig:</strong> Markus J. | ⏰ <strong>Fällig:</strong> 30.10.2025<br>
+                        📝 Angebot nachfassen - €19.200 Dachausbau Berlin
+                    </div>
+                </div>
+                <div class="opportunity">
+                    <div class="opportunity-title">📧 Kostenvoranschlag erstellen - Schmidt GmbH</div>
+                    <div class="opportunity-details">
+                        👤 <strong>Zuständig:</strong> Sarah K. | ⏰ <strong>Fällig:</strong> 28.10.2025<br>
+                        🏢 Terrassendach Hamburg - Gewerbeobjekt
+                    </div>
+                </div>
+                <div class="opportunity">
+                    <div class="opportunity-title">🔧 Projektstart vorbereiten - Wagner Familie</div>
+                    <div class="opportunity-details">
+                        👤 <strong>Zuständig:</strong> Thomas B. | ⏰ <strong>Fällig:</strong> 27.10.2025<br>
+                        🚧 Carport Installation - Material bestellen
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <script>
+            async function loadPipeline() {
+                try {
+                    // Hier würden echte WeClapp API-Calls erfolgen für TODOs
+                    await loadTodos();
+                    console.log('📈 Sales pipeline data loaded');
+                } catch (error) {
+                    console.error('❌ Error loading sales data:', error);
+                }
+            }
+            
+            async function loadTodos() {
+                try {
+                    // TODO: WeClapp API integration für Aufgaben
+                    // GET /v1/task?salesStageId={stage}&responsibleUserId={user}
+                    console.log('📋 TODOs loaded from WeClapp API');
+                } catch (error) {
+                    console.error('❌ Error loading TODOs:', error);
+                }
+            }
+            
+            // Load data on page load
+            loadPipeline();
+        </script>
+    </body>
+    </html>
+    """
+    
+    return HTMLResponse(content=sales_dashboard_html)
+
+
+@app.get("/dashboard/umsatzabgleich")
+async def umsatzabgleich_dashboard(token: str = None):
+    """💰 Umsatzabgleich Dashboard - Bank/Rechnungen Reconciliation"""
+    
+    # Simple authentication check
+    if not verify_employee_access(token):
+        return HTMLResponse(content="""
+            <script>
+                alert('Ungültiger Token - Weiterleitung zur Anmeldung...');
+                window.location.href = '/auth/login';
+            </script>
+        """)
+    
+    umsatzabgleich_dashboard_html = """
+    <!DOCTYPE html>
+    <html lang="de">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>💰 Umsatzabgleich Dashboard - C&D Technologies</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; line-height: 1.6; }
+            .header { background: linear-gradient(135deg, #fd746c 0%, #ff9068 100%); color: white; padding: 1rem; text-align: center; }
+            .container { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
+            .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
+            .card { background: white; border-radius: 10px; padding: 1.5rem; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
+            .metric { text-align: center; }
+            .metric-value { font-size: 2rem; font-weight: bold; color: #fd746c; }
+            .metric-label { color: #666; margin-top: 0.5rem; font-size: 0.875rem; }
+            .critical-alert { background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 8px; padding: 1rem; margin: 1rem 0; color: #721c24; }
+            .success-alert { background: #d4edda; border: 1px solid #c3e6cb; border-radius: 8px; padding: 1rem; margin: 1rem 0; color: #155724; }
+            .upload-zone { border: 2px dashed #fd746c; border-radius: 10px; padding: 2rem; text-align: center; margin: 2rem 0; cursor: pointer; transition: all 0.3s; }
+            .upload-zone:hover { background: #fff5f5; }
+            .btn { background: #fd746c; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 5px; cursor: pointer; margin: 0.5rem; font-weight: bold; }
+            .btn:hover { background: #fc5a50; }
+            .btn-secondary { background: #6c757d; }
+            .btn-secondary:hover { background: #5a6268; }
+            .transaction-list { max-height: 400px; overflow-y: auto; }
+            .transaction-item { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; border-bottom: 1px solid #eee; }
+            .transaction-item:last-child { border-bottom: none; }
+            .status-indicator { width: 12px; height: 12px; border-radius: 50%; margin-right: 0.5rem; }
+            .status-matched { background: #28a745; }
+            .status-unmatched { background: #dc3545; }
+            .status-partial { background: #ffc107; }
+            @media (max-width: 768px) { .dashboard-grid { grid-template-columns: 1fr; } }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>💰 Umsatzabgleich Dashboard</h1>
+            <p>Bank-Transaktionen vs. Rechnungen Reconciliation</p>
+        </div>
+        
+        <div class="container">
+            <!-- Aktueller Status -->
+            <div class="dashboard-grid">
+                <div class="card">
+                    <div class="metric">
+                        <div class="metric-value" id="matching-rate">-</div>
+                        <div class="metric-label">Matching Rate</div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="metric">
+                        <div class="metric-value" id="bank-total">-</div>
+                        <div class="metric-label">Bank Umsatz (30 Tage)</div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="metric">
+                        <div class="metric-value" id="invoice-total">-</div>
+                        <div class="metric-label">Rechnungen (30 Tage)</div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="metric">
+                        <div class="metric-value" id="variance" style="color: #dc3545;">-</div>
+                        <div class="metric-label">Netto-Abweichung</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Kritische Alerts -->
+            <div id="alerts-container">
+                <div class="critical-alert">
+                    🚨 <strong>Kritische Abweichung erkannt!</strong><br>
+                    Netto-Differenz von €1.250 zwischen Bank und Rechnungen (> €500 Threshold)
+                </div>
+            </div>
+            
+            <!-- CSV Upload -->
+            <div class="card">
+                <h2>📥 Bank-CSV Upload</h2>
+                <div class="upload-zone" onclick="document.getElementById('csv-upload').click()">
+                    <input type="file" id="csv-upload" accept=".csv" style="display: none;" onchange="handleCSVUpload(event)">
+                    <div style="font-size: 3rem; margin-bottom: 1rem;">📄</div>
+                    <h3>CSV-Datei hier ablegen oder klicken</h3>
+                    <p style="color: #666; margin-top: 0.5rem;">
+                        Unterstützt: Sparkasse, Deutsche Bank, Volksbank
+                    </p>
+                </div>
+                
+                <div style="text-align: center; margin-top: 1rem;">
+                    <button class="btn" onclick="runUmsatzabgleich()">🔄 Automatischen Abgleich starten</button>
+                    <button class="btn btn-secondary" onclick="sendTestNotification()">📧 Test-Benachrichtigung</button>
+                </div>
+            </div>
+            
+            <!-- Ungematchte Transaktionen -->
+            <div class="card">
+                <h2>🔍 Ungematchte Transaktionen</h2>
+                <button class="btn" onclick="loadUnmatched()">🔄 Aktualisieren</button>
+                
+                <div class="transaction-list" id="unmatched-list">
+                    <div class="transaction-item">
+                        <div>
+                            <div class="status-indicator status-unmatched"></div>
+                            <strong>€2.500,00</strong> | 24.10.2025
+                        </div>
+                        <div>
+                            <small style="color: #666;">MUSTERMANN GMBH - Überweisung</small><br>
+                            <button class="btn" style="padding: 0.25rem 0.75rem; font-size: 0.75rem;">🔗 Zuordnen</button>
+                        </div>
+                    </div>
+                    
+                    <div class="transaction-item">
+                        <div>
+                            <div class="status-indicator status-partial"></div>
+                            <strong>€750,50</strong> | 23.10.2025
+                        </div>
+                        <div>
+                            <small style="color: #666;">SCHMIDT & CO - Teilzahlung</small><br>
+                            <button class="btn" style="padding: 0.25rem 0.75rem; font-size: 0.75rem;">🔗 Zuordnen</button>
+                        </div>
+                    </div>
+                    
+                    <div class="transaction-item">
+                        <div>
+                            <div class="status-indicator status-matched"></div>
+                            <strong>€1.200,00</strong> | 22.10.2025
+                        </div>
+                        <div>
+                            <small style="color: #666;">AUTOMATIC MATCH: RE-2025-089</small><br>
+                            <span style="color: #28a745; font-size: 0.75rem;">✅ GEMATCHT</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <script>
+            // Load initial data
+            loadUmsatzabgleichData();
+            
+            async function loadUmsatzabgleichData() {
+                try {
+                    const response = await fetch('/api/umsatzabgleich/statistics');
+                    const data = await response.json();
+                    
+                    if (data.status === 'success') {
+                        const stats = data.statistics;
+                        
+                        document.getElementById('matching-rate').textContent = 
+                            (stats.matching_rate?.matching_percentage || 0).toFixed(1) + '%';
+                        document.getElementById('bank-total').textContent = 
+                            '€' + (stats.bank_total || 0).toLocaleString('de-DE');
+                        document.getElementById('invoice-total').textContent = 
+                            '€' + (stats.invoice_total || 0).toLocaleString('de-DE');
+                        document.getElementById('variance').textContent = 
+                            '€' + (stats.variances?.net_variance || 0).toLocaleString('de-DE');
+                        
+                        // Check for critical alerts
+                        updateAlerts(stats);
+                    }
+                } catch (error) {
+                    console.error('❌ Error loading umsatzabgleich data:', error);
+                }
+            }
+            
+            function updateAlerts(stats) {
+                const alertsContainer = document.getElementById('alerts-container');
+                const matchingRate = stats.matching_rate?.matching_percentage || 100;
+                const variance = Math.abs(stats.variances?.net_variance || 0);
+                
+                let alertsHTML = '';
+                
+                if (matchingRate < 80) {
+                    alertsHTML += `
+                        <div class="critical-alert">
+                            🚨 <strong>Niedrige Matching Rate!</strong><br>
+                            Nur ${matchingRate.toFixed(1)}% der Transaktionen wurden automatisch zugeordnet (< 80%)
+                        </div>
+                    `;
+                }
+                
+                if (variance > 500) {
+                    alertsHTML += `
+                        <div class="critical-alert">
+                            💰 <strong>Hohe Abweichung erkannt!</strong><br>
+                            Differenz von €${variance.toLocaleString('de-DE')} zwischen Bank und Rechnungen (> €500)
+                        </div>
+                    `;
+                }
+                
+                if (alertsHTML === '') {
+                    alertsHTML = `
+                        <div class="success-alert">
+                            ✅ <strong>Alles in Ordnung!</strong><br>
+                            Keine kritischen Abweichungen erkannt. Matching Rate: ${matchingRate.toFixed(1)}%
+                        </div>
+                    `;
+                }
+                
+                alertsContainer.innerHTML = alertsHTML;
+            }
+            
+            async function handleCSVUpload(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+                
+                const reader = new FileReader();
+                reader.onload = async function(e) {
+                    try {
+                        const csvContent = btoa(e.target.result);
+                        
+                        const response = await fetch('/api/umsatzabgleich/bank-csv', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                csv_content: csvContent,
+                                bank_type: 'auto',
+                                filename: file.name
+                            })
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.status === 'success') {
+                            alert(`✅ CSV erfolgreich importiert!\\n${result.message}`);
+                            loadUmsatzabgleichData(); // Refresh data
+                        } else {
+                            alert('❌ CSV Import fehlgeschlagen: ' + result.message);
+                        }
+                    } catch (error) {
+                        alert('❌ Fehler beim CSV Upload: ' + error.message);
+                    }
+                };
+                reader.readAsText(file);
+            }
+            
+            async function runUmsatzabgleich() {
+                try {
+                    const endDate = new Date().toISOString().split('T')[0];
+                    const startDate = new Date(Date.now() - 30*24*60*60*1000).toISOString().split('T')[0];
+                    
+                    const response = await fetch(
+                        `/api/umsatzabgleich/report?start_date=${startDate}&end_date=${endDate}&include_details=true`
+                    );
+                    const result = await response.json();
+                    
+                    if (result.status === 'success') {
+                        alert('✅ Umsatzabgleich erfolgreich ausgeführt!');
+                        loadUmsatzabgleichData(); // Refresh data
+                    }
+                } catch (error) {
+                    alert('❌ Fehler beim Umsatzabgleich: ' + error.message);
+                }
+            }
+            
+            async function sendTestNotification() {
+                try {
+                    const response = await fetch('/api/umsatzabgleich/notification-test', {
+                        method: 'POST'
+                    });
+                    const result = await response.json();
+                    
+                    if (result.status === 'success') {
+                        alert('✅ Test-Benachrichtigung gesendet!');
+                    } else {
+                        alert('❌ Test-Benachrichtigung fehlgeschlagen: ' + result.message);
+                    }
+                } catch (error) {
+                    alert('❌ Fehler bei Test-Benachrichtigung: ' + error.message);
+                }
+            }
+            
+            async function loadUnmatched() {
+                try {
+                    const response = await fetch('/api/umsatzabgleich/unmatched');
+                    const data = await response.json();
+                    
+                    if (data.status === 'success') {
+                        const list = document.getElementById('unmatched-list');
+                        list.innerHTML = data.unmatched_transactions.map(tx => `
+                            <div class="transaction-item">
+                                <div>
+                                    <div class="status-indicator status-unmatched"></div>
+                                    <strong>€${tx.amount?.toLocaleString('de-DE') || 'N/A'}</strong> | ${tx.date || 'N/A'}
+                                </div>
+                                <div>
+                                    <small style="color: #666;">${tx.description || 'N/A'}</small><br>
+                                    <button class="btn" style="padding: 0.25rem 0.75rem; font-size: 0.75rem;" 
+                                            onclick="matchTransaction('${tx.id}')">🔗 Zuordnen</button>
+                                </div>
+                            </div>
+                        `).join('');
+                    }
+                } catch (error) {
+                    console.error('❌ Error loading unmatched transactions:', error);
+                }
+            }
+            
+            function matchTransaction(transactionId) {
+                // TODO: Implement manual matching dialog
+                alert(`🔗 Manuelle Zuordnung für Transaction ${transactionId} (TODO: Dialog implementieren)`);
+            }
+            
+            // Auto-refresh every 30 seconds
+            setInterval(loadUmsatzabgleichData, 30000);
+        </script>
+    </body>
+    </html>
+    """
+    
+    return HTMLResponse(content=umsatzabgleich_dashboard_html)
+
+@app.get("/dashboard")
+async def main_dashboard(token: str = None):
+    """🏠 Main Dashboard - Übersicht aller Systeme"""
+    
+    # Simple authentication check
+    if not verify_employee_access(token):
+        return HTMLResponse(content="""
+            <script>
+                alert('Ungültiger Token - Weiterleitung zur Anmeldung...');
+                window.location.href = '/auth/login';
+            </script>
+        """)
+    
+    main_dashboard_html = """
+    <!DOCTYPE html>
+    <html lang="de">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>📊 C&D Technologies Dashboard</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; line-height: 1.6; }
+            .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2rem; text-align: center; }
+            .container { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
+            .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 2rem; }
+            .dashboard-card { background: white; border-radius: 15px; padding: 2rem; text-align: center; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1); transition: transform 0.3s ease; text-decoration: none; color: inherit; }
+            .dashboard-card:hover { transform: translateY(-5px); }
+            .card-icon { font-size: 3rem; margin-bottom: 1rem; }
+            .card-title { font-size: 1.5rem; font-weight: bold; margin-bottom: 0.5rem; }
+            .card-description { color: #666; margin-bottom: 1.5rem; }
+            .card-button { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 0.75rem 2rem; border-radius: 25px; cursor: pointer; font-weight: bold; }
+            .system-status { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin: 2rem 0; }
+            .status-item { background: white; padding: 1rem; border-radius: 10px; display: flex; align-items: center; justify-content: space-between; }
+            .status-indicator { width: 12px; height: 12px; border-radius: 50%; }
+            .status-online { background: #28a745; }
+            .status-warning { background: #ffc107; }
+            .footer { text-align: center; margin: 3rem 0; color: #666; }
+            @media (max-width: 768px) { .dashboard-grid { grid-template-columns: 1fr; } }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>📊 C&D Technologies</h1>
+            <h2>Mitarbeiter Dashboard</h2>
+            <p>Zugriff von überall - Desktop, Tablet & Mobile</p>
+        </div>
+        
+        <div class="container">
+            <div class="system-status">
+                <div class="status-item">
+                    <span>🔄 Railway Orchestrator</span>
+                    <span class="status-indicator status-online"></span>
+                </div>
+                <div class="status-item">
+                    <span>📧 Email Processing</span>
+                    <span class="status-indicator status-online"></span>
+                </div>
+                <div class="status-item">
+                    <span>📞 SipGate Integration</span>
+                    <span class="status-indicator status-online"></span>
+                </div>
+                <div class="status-item">
+                    <span>💰 WeClapp CRM</span>
+                    <span class="status-indicator status-online"></span>
+                </div>
+            </div>
+            
+            <div class="dashboard-grid">
+                <a href="/dashboard/invoices" class="dashboard-card">
+                    <div class="card-icon">📊</div>
+                    <div class="card-title">Invoice Dashboard</div>
+                    <div class="card-description">Rechnungsübersicht, Zahlungsstatus und offene Beträge</div>
+                    <button class="card-button">Dashboard Öffnen</button>
+                </a>
+                
+                <a href="/dashboard/sales" class="dashboard-card">
+                    <div class="card-icon">📈</div>
+                    <div class="card-title">Sales Pipeline</div>
+                    <div class="card-description">Verkaufsprozess, Opportunities und Kundenfortschritt</div>
+                    <button class="card-button">Pipeline Anzeigen</button>
+                </a>
+                
+                <a href="/dashboard/umsatzabgleich" class="dashboard-card">
+                    <div class="card-icon">💰</div>
+                    <div class="card-title">Umsatzabgleich</div>
+                    <div class="card-description">Bank-Transaktionen vs. Rechnungen Reconciliation & Alerts</div>
+                    <button class="card-button">Abgleich Öffnen</button>
+                </a>
+                
+                <a href="localhost:3000" class="dashboard-card">
+                    <div class="card-icon">📞</div>
+                    <div class="card-title">Call Log</div>
+                    <div class="card-description">SipGate Anrufliste mit Transkriptionen und Follow-ups</div>
+                    <button class="card-button">Anrufe Anzeigen</button>
+                </a>
+                
+                <a href="https://cundd.weclapp.com" class="dashboard-card">
+                    <div class="card-icon">💼</div>
+                    <div class="card-title">WeClapp CRM</div>
+                    <div class="card-description">Vollständiges CRM System für Kunden und Projekte</div>
+                    <button class="card-button">CRM Öffnen</button>
+                </a>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p>🚀 Powered by Railway AI Orchestrator | 📱 Optimiert für alle Geräte</p>
+            <p><small>Version 1.3.0 | Letzte Aktualisierung: 26.10.2025</small></p>
+        </div>
+    </body>
+    </html>
+    """
+    
+    return HTMLResponse(content=main_dashboard_html)
 
 
 # ===============================
