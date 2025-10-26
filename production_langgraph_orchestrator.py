@@ -1479,7 +1479,7 @@ def _sync_lookup_contact(email: str) -> Optional[Dict[str, Any]]:
     cursor = conn.cursor()
     
     cursor.execute("""
-    SELECT DISTINCT weclapp_contact_id, weclapp_customer_id, sender
+    SELECT DISTINCT weclapp_contact_id, weclapp_customer_id, sender, sender_name
     FROM email_data
     WHERE sender = ? AND weclapp_contact_id IS NOT NULL
     ORDER BY id DESC
@@ -1495,7 +1495,8 @@ def _sync_lookup_contact(email: str) -> Optional[Dict[str, Any]]:
             "source": "cache",
             "weclapp_contact_id": row[0],
             "weclapp_customer_id": row[1],
-            "sender": row[2]
+            "sender": row[2],
+            "contact_name": row[3]  # ✅ Add sender_name as contact_name
         }
         conn.close()
         return result
