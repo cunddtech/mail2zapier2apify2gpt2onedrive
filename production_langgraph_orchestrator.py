@@ -6295,21 +6295,25 @@ async def preview_email_batch(
 
 
 @app.get("/api/emails/search")
-async def search_emails(
-    query: str = Query(..., description="Search query (e.g., 'Rechnung', 'Invoice', company name)"),
-    start_date: str = Query(None, description="Start date in YYYY-MM-DD format"),
-    end_date: str = Query(None, description="End date in YYYY-MM-DD format"),
-    limit: int = Query(50, description="Maximum number of emails to return")
-):
+async def search_emails(request: Request):
     """
-    🔍 Search through Microsoft Graph emails for invoices and documents
+    🔍 Search emails for potential invoices with smart filtering
     
-    Example usage:
-    /api/emails/search?query=Rechnung&start_date=2025-01-01&end_date=2025-12-31&limit=100
+    Query parameters:
+    - query: Search term (default: "Rechnung OR Invoice")
+    - start_date: Start date YYYY-MM-DD (default: "2025-01-01")
+    - end_date: End date YYYY-MM-DD (default: "2025-12-31") 
+    - limit: Max results (default: 50)
     """
     
     try:
         from datetime import datetime, timedelta
+        
+        # Get query parameters manually
+        query = request.query_params.get("query", "Rechnung OR Invoice OR Faktura")
+        start_date = request.query_params.get("start_date", "2025-01-01")
+        end_date = request.query_params.get("end_date", "2025-12-31")
+        limit = int(request.query_params.get("limit", "50"))
         
         # Get access token
         access_token = await get_graph_access_token()
