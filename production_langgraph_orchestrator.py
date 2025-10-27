@@ -6228,74 +6228,31 @@ async def get_payment_stats():
 # 🔍 EMAIL SEARCH API ENDPOINTS
 # ===============================
 
-@app.get("/api/emails/preview")
-async def preview_email_batch(
-    query: str = "Rechnung OR Invoice OR Faktura",
-    start_date: str = "2025-01-01",
-    end_date: str = "2025-12-31",
-    max_emails: int = 100
-):
-    """
-    👀 PREVIEW: Show what emails would be processed (without actually processing)
-    
-    This gives you an estimate of:
-    - How many emails will be processed
-    - Estimated processing time
-    - Cost estimation
-    - Which emails will be skipped
-    """
-    
-    try:
-        # Search for emails
-        search_response = await search_emails(
-            query=query,
-            start_date=start_date,
-            end_date=end_date,
-            limit=max_emails
-        )
-        
-        if search_response["status"] != "success":
-            raise HTTPException(status_code=500, detail="Email search failed")
-        
-        emails = search_response["emails"]
-        high_priority_emails = [email for email in emails if email.get("recommendation") == "PROCESS"]
-        
-        # Calculate estimates
-        estimated_processing_time = len(high_priority_emails) * 15  # ~15 seconds per email
-        estimated_api_calls = len(high_priority_emails) * 3  # Graph API + OCR + GPT calls
-        
-        return {
-            "status": "preview",
-            "search_query": query,
-            "date_range": {"start": start_date, "end": end_date},
-            "summary": {
-                "total_emails_found": len(emails),
-                "high_priority_emails": len(high_priority_emails),
-                "will_be_skipped": len(emails) - len(high_priority_emails),
-                "estimated_processing_time": f"{estimated_processing_time} seconds (~{estimated_processing_time//60} minutes)",
-                "estimated_api_calls": estimated_api_calls,
-                "notifications_will_be_disabled": True
-            },
-            "high_priority_previews": [
-                {
-                    "subject": email["subject"],
-                    "from": email["from"],
-                    "score": email.get("invoice_score", 0),
-                    "received_date": email["received_date"],
-                    "has_attachments": email["has_attachments"]
-                }
-                for email in high_priority_emails[:10]  # Show first 10
-            ],
-            "ready_to_process": len(high_priority_emails) > 0,
-            "process_url": "https://my-langgraph-agent-production.up.railway.app/api/emails/batch-process"
-        }
-        
-    except Exception as e:
-        logger.error(f"❌ Email preview error: {e}")
-        raise HTTPException(status_code=500, detail=f"Preview failed: {str(e)}")
+# ====== TEMPORARILY DISABLED EMAIL ENDPOINTS FOR RAILWAY FIX ======
+# Will be re-enabled once Railway deploys correctly
 
+# @app.get("/api/emails/preview")
+# @app.get("/api/emails/search") 
+# @app.post("/api/emails/process/{message_id}")
+# @app.post("/api/emails/batch-process")
 
-@app.get("/api/emails/search")
+@app.get("/api/status/email-features")
+async def email_features_status():
+    """🔧 Status of email batch processing features"""
+    return {
+        "status": "temporarily_disabled",
+        "reason": "railway_deployment_fix_in_progress",
+        "features_being_restored": [
+            "Smart Email Filtering",
+            "Batch Processing",
+            "Invoice Score System",
+            "Notification Suppression"
+        ],
+        "eta": "will be restored after railway deployment stabilizes",
+        "current_email_processing": "individual emails via /webhook/email still work"
+    }
+
+# ====== END TEMPORARY SECTION ======
 async def search_emails(request: Request):
     """
     🔍 Search emails for potential invoices with smart filtering
