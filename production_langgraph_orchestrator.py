@@ -7695,6 +7695,129 @@ async def main_dashboard(token: str = None):
 
 
 # ===============================
+# 📧 EMAIL BATCH PROCESSING (SMART FILTERING)
+# ===============================
+
+@app.get("/api/emails/preview")
+async def preview_email_batch(request: Request):
+    """
+    👀 PREVIEW: Zeigt welche E-Mails verarbeitet werden würden (ohne zu verarbeiten)
+    
+    Query params: query, start_date, end_date, max_emails
+    """
+    try:
+        # Get params from request
+        query = request.query_params.get("query", "Rechnung OR Invoice OR Faktura")
+        start_date = request.query_params.get("start_date", "2025-01-01")
+        end_date = request.query_params.get("end_date", "2025-12-31")
+        max_emails = int(request.query_params.get("max_emails", "100"))
+        
+        # Search emails
+        search_result = await search_emails_internal(query, start_date, end_date, max_emails)
+        
+        if not search_result.get("success"):
+            raise HTTPException(status_code=500, detail=search_result.get("error"))
+        
+        emails = search_result["emails"]
+        high_priority = [e for e in emails if e.get("recommendation") == "PROCESS"]
+        
+        # Estimates
+        estimated_time = len(high_priority) * 15  # seconds
+        
+        return {
+            "status": "preview",
+            "query": query,
+            "date_range": {"start": start_date, "end": end_date},
+            "summary": {
+                "total_found": len(emails),
+                "high_priority": len(high_priority),
+                "will_skip": len(emails) - len(high_priority),
+                "estimated_time": f"{estimated_time}s (~{estimated_time//60}min)",
+                "notifications_disabled": True
+            },
+            "sample_emails": high_priority[:10]
+        }
+    except Exception as e:
+        logger.error(f"❌ Preview error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def search_emails_internal(query: str, start_date: str, end_date: str, limit: int = 100):
+    """Internal helper for email search with smart filtering"""
+    try:
+        from modules.auth.get_graph_token import get_graph_token
+        
+        access_token = await get_graph_token("mail")
+        user_email = "mj@cundd.net"
+        
+        # Build Graph API query
+        filter_query = f"receivedDateTime ge {start_date}T00:00:00Z and receivedDateTime le {end_date}T23:59:59Z"
+        search_url = f"https://graph.microsoft.com/v1.0/users/{user_email}/messages?$filter={filter_query}&$search=\"{query}\"&$top={limit}&$select=id,subject,from,receivedDateTime,hasAttachments,bodyPreview"
+        
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(search_url, headers=headers)
+        
+        if response.status_code != 200:
+            return {"success": False, "error": f"Graph API error: {response.status_code}"}
+        
+        emails_data = response.json().get("value", [])
+        results = []
+        
+        for email in emails_data:
+            subject = email.get("subject", "").lower()
+            sender = email.get("from", {}).get("emailAddress", {}).get("address", "").lower()
+            preview = email.get("bodyPreview", "").lower()
+            
+            # SMART SCORING
+            score = 0
+            
+            # Strong invoice keywords (+3)
+            if any(kw in subject for kw in ["rechnung", "invoice", "faktura"]):
+                score += 3
+            
+            # Medium keywords (+2)
+            if any(kw in subject or kw in preview for kw in ["bezahlung", "payment", "betrag"]):
+                score += 2
+            
+            # Trusted senders (+2)
+            if any(domain in sender for domain in ["paypal.com", "stripe.com", "lexoffice.de"]):
+                score += 2
+            
+            # Has attachments (+1)
+            if email.get("hasAttachments"):
+                score += 1
+            
+            # Skip spam
+            skip_keywords = ["newsletter", "marketing", "unsubscribe"]
+            is_spam = any(kw in subject or kw in preview for kw in skip_keywords)
+            
+            auto_senders = ["noreply", "no-reply", "donotreply"]
+            is_auto = any(auto in sender for auto in auto_senders)
+            
+            recommendation = "PROCESS" if (score >= 3 and not is_spam and not is_auto) else "SKIP"
+            
+            results.append({
+                "id": email.get("id"),
+                "subject": email.get("subject"),
+                "from": sender,
+                "received_date": email.get("receivedDateTime"),
+                "has_attachments": email.get("hasAttachments", False),
+                "invoice_score": score,
+                "recommendation": recommendation
+            })
+        
+        return {"success": True, "emails": results}
+        
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ===============================
 # PRODUCTION SERVER STARTUP
 # ===============================
 
