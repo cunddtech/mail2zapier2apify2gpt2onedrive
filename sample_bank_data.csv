@@ -1,0 +1,8 @@
+# 📊 BEISPIEL BANK-CSV für Umsatzabgleich
+
+Datum;Betrag;Verwendungszweck;Empfänger;Referenz
+25.10.2025;5678,90;Überweisung Example AG RE CD-2025-042 Dachsanierung;Example AG;BANK-2025-101
+21.10.2025;-1234,00;Zahlung Lieferant XY ÜBER-2025-999;Lieferant XY GmbH;BANK-2025-102
+20.10.2025;3450,00;Eingang Schmidt Partner Terrassendach CD-2025-043;Schmidt & Partner GmbH;BANK-2025-103
+19.10.2025;-890,50;Zahlung Werkzeug Schmidt WERK-2025-567 Werkzeug;Werkzeug Schmidt KG;BANK-2025-104
+18.10.2025;1200,00;Familie Wagner Carport CD-2025-044;Familie Wagner;BANK-2025-105

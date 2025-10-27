@@ -1,0 +1,23 @@
+
+📁 STEUERBERATER REPORT - 26.10.2025
+================================================================================
+
+📥 EINGANGSRECHNUNGEN:
+   ✅ Bezahlte Rechnungen: 0 (€0.00)
+   ⏳ Offene Rechnungen: 3 (€4,450.50)
+
+🔍 FEHLENDE BELEGE (DRINGEND):
+   🚨 Transaktionen ohne Beleg: 2
+   💼 Steuerrelevante unzugeordnet: 3
+
+📊 KATEGORISIERUNG:
+
+🚨 HANDLUNGSBEDARF:
+   • 2025-10-18: €-125.50 - TANKSTELLE SHELL MUENCHEN... (BELEG FEHLT)
+   • 2025-10-20: €-89.90 - AMAZON MARKETPLACE... (BELEG FEHLT)
+
+📂 ABLAGE-EMPFEHLUNG:
+   1. Alle bezahlten Rechnungen → Steuer-Ordner 2025
+   2. Fehlende Belege nachreichen
+   3. Unklare Transaktionen kategorisieren
+   4. WeClapp Integration für automatische Zuordnung
