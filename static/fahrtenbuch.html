@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fahrtenbuch Management - C&D Tech</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f7fa;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .stat-card.internal { border-left: 4px solid #95a5a6; }
+        .stat-card.matched { border-left: 4px solid #27ae60; }
+        .stat-card.open { border-left: 4px solid #e74c3c; }
+        
+        .stat-label {
+            font-size: 0.9em;
+            color: #7f8c8d;
+            margin-bottom: 5px;
+        }
+        
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        .stat-sub {
+            font-size: 0.85em;
+            color: #95a5a6;
+            margin-top: 5px;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #ecf0f1;
+        }
+        
+        .tab {
+            padding: 12px 24px;
+            background: none;
+            border: none;
+            font-size: 1em;
+            cursor: pointer;
+            color: #7f8c8d;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+        }
+        
+        .tab:hover { color: #2c3e50; }
+        .tab.active {
+            color: #3498db;
+            border-bottom-color: #3498db;
+            font-weight: 600;
+        }
+        
+        .trip-list {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .trip-item {
+            padding: 16px;
+            border-bottom: 1px solid #ecf0f1;
+            display: grid;
+            grid-template-columns: 100px 1fr 150px 100px 120px;
+            gap: 15px;
+            align-items: center;
+            transition: background 0.2s;
+        }
+        
+        .trip-item:hover { background: #f8f9fa; }
+        .trip-item:last-child { border-bottom: none; }
+        
+        .trip-date {
+            font-weight: 600;
+            color: #2c3e50;
+            font-size: 0.9em;
+        }
+        
+        .trip-address {
+            color: #34495e;
+        }
+        
+        .trip-customer {
+            font-size: 0.9em;
+            color: #7f8c8d;
+        }
+        
+        .trip-distance {
+            text-align: right;
+            font-weight: 600;
+            color: #3498db;
+        }
+        
+        .trip-actions {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+        
+        button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: all 0.2s;
+        }
+        
+        button:hover { transform: translateY(-1px); }
+        
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+        
+        .btn-primary:hover { background: #2980b9; }
+        
+        .btn-success {
+            background: #27ae60;
+            color: white;
+        }
+        
+        .btn-success:hover { background: #229954; }
+        
+        .btn-danger {
+            background: #e74c3c;
+            color: white;
+        }
+        
+        .btn-danger:hover { background: #c0392b; }
+        
+        .btn-secondary {
+            background: #95a5a6;
+            color: white;
+        }
+        
+        .btn-secondary:hover { background: #7f8c8d; }
+        
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.75em;
+            font-weight: 600;
+        }
+        
+        .badge.internal { background: #ecf0f1; color: #7f8c8d; }
+        .badge.matched { background: #d5f4e6; color: #27ae60; }
+        .badge.high { background: #d5f4e6; color: #27ae60; }
+        .badge.medium { background: #fff3cd; color: #856404; }
+        .badge.low { background: #f8d7da; color: #721c24; }
+        
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        
+        .modal {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        
+        .modal h2 {
+            margin-bottom: 20px;
+            color: #2c3e50;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #34495e;
+        }
+        
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #dcdcdc;
+            border-radius: 4px;
+            font-size: 1em;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+        
+        .search-results {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ecf0f1;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        
+        .search-result-item {
+            padding: 12px;
+            border-bottom: 1px solid #ecf0f1;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .search-result-item:hover {
+            background: #f8f9fa;
+        }
+        
+        .search-result-item:last-child {
+            border-bottom: none;
+        }
+        
+        .search-result-company {
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 4px;
+        }
+        
+        .search-result-address {
+            font-size: 0.85em;
+            color: #7f8c8d;
+        }
+        
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #7f8c8d;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #7f8c8d;
+        }
+        
+        .empty-state-icon {
+            font-size: 4em;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div id="app" class="container">
+        <h1>🚗 Fahrtenbuch Management</h1>
+        <p style="color: #7f8c8d; margin-bottom: 30px;">C&D Tech GmbH - Fahrtenzuordnung & Abrechnung</p>
+        
+        <!-- Stats -->
+        <div class="stats-grid">
+            <div class="stat-card internal">
+                <div class="stat-label">🏢 Interne Fahrten</div>
+                <div class="stat-value">{{ stats.INTERNAL.count }}</div>
+                <div class="stat-sub">{{ stats.INTERNAL.total_km }} km</div>
+            </div>
+            <div class="stat-card matched">
+                <div class="stat-label">✅ Zugeordnet</div>
+                <div class="stat-value">{{ stats.MATCHED.count }}</div>
+                <div class="stat-sub">{{ stats.MATCHED.total_km }} km</div>
+            </div>
+            <div class="stat-card open">
+                <div class="stat-label">❌ Offen</div>
+                <div class="stat-value">{{ stats.OPEN.count }}</div>
+                <div class="stat-sub">{{ stats.OPEN.total_km }} km</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">📊 Gesamt</div>
+                <div class="stat-value">{{ totalTrips }}</div>
+                <div class="stat-sub">{{ totalKm }} km</div>
+            </div>
+        </div>
+        
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab" :class="{active: activeTab === 'OPEN'}" @click="activeTab = 'OPEN'">
+                ❌ Offen ({{ stats.OPEN.count }})
+            </button>
+            <button class="tab" :class="{active: activeTab === 'MATCHED'}" @click="activeTab = 'MATCHED'">
+                ✅ Zugeordnet ({{ stats.MATCHED.count }})
+            </button>
+            <button class="tab" :class="{active: activeTab === 'INTERNAL'}" @click="activeTab = 'INTERNAL'">
+                🏢 Intern ({{ stats.INTERNAL.count }})
+            </button>
+        </div>
+        
+        <!-- Trip List -->
+        <div class="trip-list">
+            <div v-if="loading" class="loading">
+                Lade Fahrten...
+            </div>
+            
+            <div v-else-if="currentTrips.length === 0" class="empty-state">
+                <div class="empty-state-icon">📭</div>
+                <div>Keine Fahrten in dieser Kategorie</div>
+            </div>
+            
+            <div v-else v-for="trip in currentTrips" :key="trip.id" class="trip-item">
+                <div class="trip-date">
+                    {{ formatDate(trip.trip_date) }}<br>
+                    <small style="color: #95a5a6;">{{ trip.start_time }}</small>
+                </div>
+                
+                <div>
+                    <div class="trip-address">{{ trip.destination_address }}</div>
+                    <div v-if="trip.customer_name" class="trip-customer">
+                        👤 {{ trip.customer_name }}
+                        <span v-if="trip.match_confidence" class="badge" :class="getConfidenceBadge(trip.match_confidence)">
+                            {{ trip.match_confidence }}%
+                        </span>
+                    </div>
+                    <div v-if="trip.internal_location" class="trip-customer">
+                        🏢 {{ trip.internal_location }}
+                    </div>
+                </div>
+                
+                <div class="trip-customer">
+                    {{ trip.driver_name || 'Unbekannt' }}
+                </div>
+                
+                <div class="trip-distance">
+                    {{ trip.distance_km }} km
+                </div>
+                
+                <div class="trip-actions">
+                    <button v-if="trip.status === 'OPEN'" class="btn-primary" @click="assignTrip(trip)">
+                        Zuordnen
+                    </button>
+                    <button v-if="trip.status === 'MATCHED'" class="btn-secondary" @click="editTrip(trip)">
+                        Bearbeiten
+                    </button>
+                    <button v-if="trip.status === 'MATCHED'" class="btn-danger" @click="unassignTrip(trip)">
+                        Entfernen
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Assignment Modal -->
+        <div v-if="showAssignModal" class="modal-overlay" @click.self="closeModal">
+            <div class="modal">
+                <h2>Fahrt zuordnen</h2>
+                
+                <div style="background: #f8f9fa; padding: 15px; border-radius: 4px; margin-bottom: 20px;">
+                    <strong>{{ selectedTrip.destination_address }}</strong><br>
+                    <small style="color: #7f8c8d;">{{ formatDate(selectedTrip.trip_date) }} • {{ selectedTrip.distance_km }} km</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>🔍 Kunde suchen</label>
+                    <input 
+                        type="text" 
+                        v-model="searchQuery" 
+                        @input="searchCustomers" 
+                        placeholder="Name, Stadt oder Adresse..."
+                    >
+                </div>
+                
+                <div v-if="searchResults.length > 0" class="search-results">
+                    <div 
+                        v-for="customer in searchResults" 
+                        :key="customer.id" 
+                        class="search-result-item"
+                        @click="selectCustomer(customer)"
+                    >
+                        <div class="search-result-company">{{ customer.company }}</div>
+                        <div class="search-result-address">{{ customer.address }}</div>
+                    </div>
+                </div>
+                
+                <div style="text-align: center; margin: 20px 0; color: #7f8c8d;">
+                    oder
+                </div>
+                
+                <button class="btn-success" style="width: 100%;" @click="showNewCustomerForm = true">
+                    ➕ Neuen Kunden anlegen
+                </button>
+                
+                <div class="modal-actions">
+                    <button class="btn-secondary" @click="closeModal">Abbrechen</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- New Customer Modal -->
+        <div v-if="showNewCustomerForm" class="modal-overlay" @click.self="showNewCustomerForm = false">
+            <div class="modal">
+                <h2>Neuen Kunden anlegen</h2>
+                
+                <div class="form-group">
+                    <label>Firma *</label>
+                    <input type="text" v-model="newCustomer.company" placeholder="Firma GmbH">
+                </div>
+                
+                <div class="form-group">
+                    <label>Straße *</label>
+                    <input type="text" v-model="newCustomer.street" placeholder="Musterstraße 1">
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 15px;">
+                    <div class="form-group">
+                        <label>PLZ *</label>
+                        <input type="text" v-model="newCustomer.zipcode" placeholder="12345">
+                    </div>
+                    <div class="form-group">
+                        <label>Stadt *</label>
+                        <input type="text" v-model="newCustomer.city" placeholder="Musterstadt">
+                    </div>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                    <div class="form-group">
+                        <label>Vorname</label>
+                        <input type="text" v-model="newCustomer.contact_first_name" placeholder="Max">
+                    </div>
+                    <div class="form-group">
+                        <label>Nachname</label>
+                        <input type="text" v-model="newCustomer.contact_last_name" placeholder="Mustermann">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>E-Mail</label>
+                    <input type="email" v-model="newCustomer.email" placeholder="max@firma.de">
+                </div>
+                
+                <div class="form-group">
+                    <label>Telefon</label>
+                    <input type="tel" v-model="newCustomer.phone" placeholder="+49 123 456789">
+                </div>
+                
+                <div class="modal-actions">
+                    <button class="btn-secondary" @click="showNewCustomerForm = false">Abbrechen</button>
+                    <button class="btn-success" @click="createCustomerAndAssign">Anlegen & Zuordnen</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const { createApp } = Vue;
+        
+        createApp({
+            data() {
+                return {
+                    trips: {
+                        INTERNAL: [],
+                        MATCHED: [],
+                        OPEN: []
+                    },
+                    stats: {
+                        INTERNAL: { count: 0, total_km: 0, avg_km: 0 },
+                        MATCHED: { count: 0, total_km: 0, avg_km: 0 },
+                        OPEN: { count: 0, total_km: 0, avg_km: 0 }
+                    },
+                    activeTab: 'OPEN',
+                    loading: true,
+                    showAssignModal: false,
+                    showNewCustomerForm: false,
+                    selectedTrip: null,
+                    searchQuery: '',
+                    searchResults: [],
+                    newCustomer: {
+                        company: '',
+                        street: '',
+                        zipcode: '',
+                        city: '',
+                        contact_first_name: '',
+                        contact_last_name: '',
+                        email: '',
+                        phone: ''
+                    }
+                }
+            },
+            computed: {
+                currentTrips() {
+                    return this.trips[this.activeTab] || [];
+                },
+                totalTrips() {
+                    return this.stats.INTERNAL.count + this.stats.MATCHED.count + this.stats.OPEN.count;
+                },
+                totalKm() {
+                    return (this.stats.INTERNAL.total_km + this.stats.MATCHED.total_km + this.stats.OPEN.total_km).toFixed(1);
+                }
+            },
+            mounted() {
+                this.loadData();
+            },
+            methods: {
+                async loadData() {
+                    this.loading = true;
+                    try {
+                        const [tripsResponse, statsResponse] = await Promise.all([
+                            axios.get('/api/fahrtenbuch/trips?days=30'),
+                            axios.get('/api/fahrtenbuch/stats?days=30')
+                        ]);
+                        
+                        this.trips = tripsResponse.data;
+                        this.stats = statsResponse.data.stats;
+                    } catch (error) {
+                        console.error('Error loading data:', error);
+                        alert('Fehler beim Laden der Daten');
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+                formatDate(dateStr) {
+                    const date = new Date(dateStr);
+                    return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                },
+                getConfidenceBadge(confidence) {
+                    if (confidence >= 80) return 'high';
+                    if (confidence >= 50) return 'medium';
+                    return 'low';
+                },
+                assignTrip(trip) {
+                    this.selectedTrip = trip;
+                    this.showAssignModal = true;
+                    this.searchQuery = trip.destination_address.split(',')[1]?.trim() || '';
+                    this.searchCustomers();
+                },
+                editTrip(trip) {
+                    this.assignTrip(trip);
+                },
+                async unassignTrip(trip) {
+                    if (!confirm(`Zuordnung von "${trip.customer_name}" entfernen?`)) return;
+                    
+                    try {
+                        await axios.post(`/api/fahrtenbuch/trips/${trip.id}/unassign`);
+                        alert('Zuordnung entfernt');
+                        this.loadData();
+                    } catch (error) {
+                        console.error('Error unassigning trip:', error);
+                        alert('Fehler beim Entfernen der Zuordnung');
+                    }
+                },
+                async searchCustomers() {
+                    if (this.searchQuery.length < 2) {
+                        this.searchResults = [];
+                        return;
+                    }
+                    
+                    try {
+                        const response = await axios.get(`/api/fahrtenbuch/customers/search?q=${encodeURIComponent(this.searchQuery)}`);
+                        this.searchResults = response.data.customers;
+                    } catch (error) {
+                        console.error('Error searching customers:', error);
+                    }
+                },
+                async selectCustomer(customer) {
+                    try {
+                        await axios.post(`/api/fahrtenbuch/trips/${this.selectedTrip.id}/assign`, {
+                            trip_id: this.selectedTrip.id,
+                            customer_id: customer.id,
+                            customer_name: customer.company,
+                            match_confidence: 100,
+                            notes: 'Manuell zugeordnet'
+                        });
+                        
+                        alert(`Fahrt zu "${customer.company}" zugeordnet!`);
+                        this.closeModal();
+                        this.loadData();
+                    } catch (error) {
+                        console.error('Error assigning trip:', error);
+                        alert('Fehler bei der Zuordnung');
+                    }
+                },
+                async createCustomerAndAssign() {
+                    if (!this.newCustomer.company || !this.newCustomer.street || !this.newCustomer.zipcode || !this.newCustomer.city) {
+                        alert('Bitte alle Pflichtfelder ausfüllen');
+                        return;
+                    }
+                    
+                    try {
+                        await axios.post('/api/fahrtenbuch/customers/create', {
+                            trip_id: this.selectedTrip.id,
+                            ...this.newCustomer
+                        });
+                        
+                        alert(`Kunde "${this.newCustomer.company}" angelegt und Fahrt zugeordnet!`);
+                        this.closeModal();
+                        this.showNewCustomerForm = false;
+                        this.loadData();
+                    } catch (error) {
+                        console.error('Error creating customer:', error);
+                        alert('Fehler beim Anlegen des Kunden');
+                    }
+                },
+                closeModal() {
+                    this.showAssignModal = false;
+                    this.showNewCustomerForm = false;
+                    this.selectedTrip = null;
+                    this.searchQuery = '';
+                    this.searchResults = [];
+                    this.newCustomer = {
+                        company: '',
+                        street: '',
+                        zipcode: '',
+                        city: '',
+                        contact_first_name: '',
+                        contact_last_name: '',
+                        email: '',
+                        phone: ''
+                    };
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
