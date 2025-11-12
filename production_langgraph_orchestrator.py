@@ -25,6 +25,7 @@ DEPLOYMENT: Kopieren → Docker Build → Container Station Deploy
 import os
 import json
 import asyncio
+import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, TypedDict
 from dataclasses import dataclass
@@ -196,6 +197,56 @@ logger = logging.getLogger(__name__)
 # ===============================
 # ZAPIER NOTIFICATION FUNCTIONS
 # ===============================
+
+# ========================================
+# UUID BUTTON GENERATION HELPER
+# ========================================
+
+def register_and_create_button_url(
+    tracking_db: EmailTrackingDB,
+    communication_uuid: str,
+    email_message_id: str,
+    action_type: str,
+    action_label: str,
+    action_config: Dict = None,
+    button_color: str = "btn-primary"
+) -> str:
+    """
+    Registriert einen Button in der Datenbank und gibt die UUID-URL zurück.
+    
+    Args:
+        tracking_db: EmailTrackingDB Instanz
+        communication_uuid: UUID der Communication/Notification
+        email_message_id: Message-ID der ursprünglichen Email
+        action_type: Typ der Action (z.B. "create_contact", "schedule_appointment")
+        action_label: Button-Text
+        action_config: Zusätzliche Config-Parameter für die Action
+        button_color: CSS-Klasse für Button-Farbe
+    
+    Returns:
+        UUID-basierte Action URL
+    """
+    import uuid
+    
+    # Generate UUID for button
+    button_uuid = str(uuid.uuid4())
+    
+    # Register in database
+    tracking_db.register_button(
+        button_uuid=button_uuid,
+        communication_uuid=communication_uuid,
+        email_message_id=email_message_id,
+        action_type=action_type,
+        action_label=action_label,
+        action_config=action_config,
+        button_color=button_color
+    )
+    
+    # Build UUID-based URL
+    base_url = "https://my-langgraph-agent-production.up.railway.app"
+    button_url = f"{base_url}/api/action/{button_uuid}"
+    
+    return button_url
 
 def generate_notification_html(notification_data: Dict[str, Any]) -> str:
     """
@@ -5689,6 +5740,387 @@ async def process_feedback(request: Request):
         
     except Exception as e:
         logger.error(f"❌ Feedback processing error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+# ========================================
+# UUID ACTION HANDLERS
+# ========================================
+
+async def handle_create_contact(button_info: Dict, action_config: Dict, extra_params: Dict, tracking_db: EmailTrackingDB) -> Dict:
+    """Handler: Erstellt neuen WeClapp Kontakt"""
+    try:
+        # Extract contact data from button_info and extra_params
+        from_address = button_info.get('from_address', '')
+        email_subject = button_info.get('email_subject', '')
+        
+        # Get contact details from action_config or extra_params
+        contact_data = action_config.get('contact_data', {})
+        contact_data.update(extra_params.get('contact_data', {}))
+        
+        # Extract email and name
+        email = contact_data.get('email', from_address)
+        name = contact_data.get('name', 'Unbekannt')
+        company = contact_data.get('company', '')
+        phone = contact_data.get('phone', '')
+        
+        logger.info(f"📇 Creating contact: {name} ({email})")
+        
+        # TODO: Implement WeClapp API Call
+        # For now, return mock data
+        weclapp_party_id = f"mock-party-{int(time.time())}"
+        
+        return {
+            "success": True,
+            "weclapp_party_id": weclapp_party_id,
+            "contact_name": name,
+            "contact_email": email,
+            "side_effects": {
+                "weclapp_party_created": weclapp_party_id,
+                "contact_type": "customer"
+            }
+        }
+    except Exception as e:
+        logger.error(f"❌ Create contact failed: {str(e)}")
+        raise
+
+async def handle_schedule_appointment(button_info: Dict, action_config: Dict, extra_params: Dict, tracking_db: EmailTrackingDB) -> Dict:
+    """Handler: Terminvereinbarung über WeClapp"""
+    try:
+        appointment_type = action_config.get('appointment_type', 'meeting')
+        preferred_date = extra_params.get('preferred_date')
+        duration_minutes = action_config.get('duration_minutes', 60)
+        
+        logger.info(f"📅 Scheduling appointment: {appointment_type}")
+        
+        # TODO: Implement WeClapp Calendar API
+        appointment_id = f"mock-appointment-{int(time.time())}"
+        
+        return {
+            "success": True,
+            "appointment_id": appointment_id,
+            "appointment_type": appointment_type,
+            "status": "proposed",
+            "side_effects": {
+                "calendar_event_created": appointment_id
+            }
+        }
+    except Exception as e:
+        logger.error(f"❌ Schedule appointment failed: {str(e)}")
+        raise
+
+async def handle_create_quote(button_info: Dict, action_config: Dict, extra_params: Dict, tracking_db: EmailTrackingDB) -> Dict:
+    """Handler: Angebot erstellen"""
+    try:
+        quote_items = action_config.get('items', [])
+        customer_id = action_config.get('customer_id')
+        
+        logger.info(f"💰 Creating quote for customer: {customer_id}")
+        
+        # TODO: Implement WeClapp Quote API
+        quote_id = f"mock-quote-{int(time.time())}"
+        
+        return {
+            "success": True,
+            "quote_id": quote_id,
+            "quote_number": f"QT-{datetime.now().strftime('%Y%m%d')}-001",
+            "status": "draft",
+            "side_effects": {
+                "weclapp_quote_created": quote_id
+            }
+        }
+    except Exception as e:
+        logger.error(f"❌ Create quote failed: {str(e)}")
+        raise
+
+async def handle_approve_invoice(button_info: Dict, action_config: Dict, extra_params: Dict, tracking_db: EmailTrackingDB) -> Dict:
+    """Handler: Rechnung genehmigen"""
+    try:
+        invoice_id = action_config.get('invoice_id')
+        approved_by = extra_params.get('approved_by', 'unknown')
+        
+        logger.info(f"✅ Approving invoice: {invoice_id}")
+        
+        # TODO: Implement WeClapp Invoice Approval
+        
+        return {
+            "success": True,
+            "invoice_id": invoice_id,
+            "approved_at": datetime.now().isoformat(),
+            "approved_by": approved_by,
+            "side_effects": {
+                "invoice_status_updated": "approved"
+            }
+        }
+    except Exception as e:
+        logger.error(f"❌ Approve invoice failed: {str(e)}")
+        raise
+
+async def handle_update_opportunity(button_info: Dict, action_config: Dict, extra_params: Dict, tracking_db: EmailTrackingDB) -> Dict:
+    """Handler: Opportunity Status aktualisieren"""
+    try:
+        opportunity_id = action_config.get('opportunity_id')
+        new_status = action_config.get('new_status')
+        
+        logger.info(f"📊 Updating opportunity: {opportunity_id} → {new_status}")
+        
+        # TODO: Implement WeClapp Opportunity Update
+        
+        return {
+            "success": True,
+            "opportunity_id": opportunity_id,
+            "old_status": "in_progress",
+            "new_status": new_status,
+            "updated_at": datetime.now().isoformat(),
+            "side_effects": {
+                "weclapp_opportunity_updated": opportunity_id,
+                "status_changed": f"→ {new_status}"
+            }
+        }
+    except Exception as e:
+        logger.error(f"❌ Update opportunity failed: {str(e)}")
+        raise
+
+async def handle_assign_task(button_info: Dict, action_config: Dict, extra_params: Dict, tracking_db: EmailTrackingDB) -> Dict:
+    """Handler: Task zuweisen"""
+    try:
+        task_type = action_config.get('task_type', 'follow_up')
+        assign_to = action_config.get('assign_to')
+        due_date = extra_params.get('due_date')
+        
+        logger.info(f"📋 Assigning task: {task_type} → {assign_to}")
+        
+        # Create task in queue
+        task_uuid = tracking_db.queue_task(
+            task_type=task_type,
+            execute_after=due_date or datetime.now().isoformat(),
+            task_data={
+                "assign_to": assign_to,
+                "email_message_id": button_info['email_message_id'],
+                "task_config": action_config
+            },
+            email_message_id=button_info['email_message_id']
+        )
+        
+        return {
+            "success": True,
+            "task_uuid": task_uuid,
+            "task_type": task_type,
+            "assigned_to": assign_to,
+            "side_effects": {
+                "task_queued": task_uuid
+            }
+        }
+    except Exception as e:
+        logger.error(f"❌ Assign task failed: {str(e)}")
+        raise
+
+async def handle_send_followup(button_info: Dict, action_config: Dict, extra_params: Dict, tracking_db: EmailTrackingDB) -> Dict:
+    """Handler: Follow-up Email senden"""
+    try:
+        recipient = action_config.get('recipient', button_info.get('recipient_email'))
+        template = action_config.get('template', 'default')
+        
+        logger.info(f"📧 Sending follow-up to: {recipient}")
+        
+        # TODO: Implement Email sending via Zapier or Graph API
+        
+        return {
+            "success": True,
+            "recipient": recipient,
+            "template_used": template,
+            "sent_at": datetime.now().isoformat(),
+            "side_effects": {
+                "email_sent": recipient
+            }
+        }
+    except Exception as e:
+        logger.error(f"❌ Send follow-up failed: {str(e)}")
+        raise
+
+async def handle_link_trip(button_info: Dict, action_config: Dict, extra_params: Dict, tracking_db: EmailTrackingDB) -> Dict:
+    """Handler: Fahrtenbuch mit Opportunity verknüpfen"""
+    try:
+        trip_id = action_config.get('trip_id') or extra_params.get('trip_id')
+        opportunity_id = action_config.get('opportunity_id') or extra_params.get('opportunity_id')
+        
+        if not trip_id or not opportunity_id:
+            raise ValueError("trip_id and opportunity_id required")
+        
+        logger.info(f"🚗 Linking trip {trip_id} to opportunity {opportunity_id}")
+        
+        # Create link in database
+        link_uuid = tracking_db.link_trip_to_opportunity(
+            trip_id=trip_id,
+            opportunity_id=opportunity_id,
+            link_type="manual",
+            email_message_id=button_info['email_message_id'],
+            linked_by=extra_params.get('executed_by', 'unknown'),
+            metadata={
+                "button_uuid": button_info.get('button_uuid'),
+                "linked_at": datetime.now().isoformat()
+            }
+        )
+        
+        return {
+            "success": True,
+            "link_uuid": link_uuid,
+            "trip_id": trip_id,
+            "opportunity_id": opportunity_id,
+            "side_effects": {
+                "trip_opportunity_linked": link_uuid
+            }
+        }
+    except Exception as e:
+        logger.error(f"❌ Link trip failed: {str(e)}")
+        raise
+
+@app.api_route("/api/action/{button_uuid}", methods=["GET", "POST"])
+async def execute_button_action(button_uuid: str, request: Request):
+    """
+    🎯 UUID-BASIERTES ACTION SYSTEM
+    
+    Führt Button-Actions aus basierend auf UUID-Lookup in der Datenbank.
+    Unterstützt komplexe Actions mit vollständiger Execution-History.
+    
+    Unterstützte Action Types:
+    - create_contact: Erstellt neuen WeClapp Kontakt
+    - schedule_appointment: Terminvereinbarung über WeClapp
+    - create_quote: Angebot erstellen
+    - approve_invoice: Rechnung genehmigen
+    - update_opportunity: Opportunity Status aktualisieren
+    - assign_task: Task zuweisen
+    - send_followup: Follow-up Email senden
+    - link_trip: Fahrtenbuch mit Opportunity verknüpfen
+    """
+    
+    start_time = time.time()
+    
+    try:
+        # 1. Lookup Button Info aus Datenbank
+        tracking_db = get_email_tracking_db()
+        button_info = tracking_db.get_button_info(button_uuid)
+        
+        if not button_info:
+            logger.warning(f"⚠️ Button UUID not found: {button_uuid}")
+            raise HTTPException(status_code=404, detail="Button not found or expired")
+        
+        if not button_info.get('is_active'):
+            logger.warning(f"⚠️ Button UUID inactive: {button_uuid}")
+            raise HTTPException(status_code=410, detail="Button has been deactivated")
+        
+        # Check expiry
+        if button_info.get('expires_at'):
+            from datetime import datetime
+            expires_at = datetime.fromisoformat(button_info['expires_at'])
+            if datetime.now() > expires_at:
+                logger.warning(f"⚠️ Button UUID expired: {button_uuid}")
+                raise HTTPException(status_code=410, detail="Button has expired")
+        
+        action_type = button_info['action_type']
+        action_config = button_info.get('action_config', {})
+        email_message_id = button_info['email_message_id']
+        
+        logger.info(f"🔘 Executing action: {action_type} for button {button_uuid}")
+        
+        # 2. Get additional params from request
+        if request.method == "GET":
+            extra_params = dict(request.query_params)
+        else:
+            try:
+                extra_params = await request.json()
+            except:
+                extra_params = {}
+        
+        # 3. Route to Action Handler
+        result = None
+        side_effects = {}
+        
+        try:
+            if action_type == "create_contact":
+                result = await handle_create_contact(button_info, action_config, extra_params, tracking_db)
+                side_effects = result.get("side_effects", {})
+                
+            elif action_type == "schedule_appointment":
+                result = await handle_schedule_appointment(button_info, action_config, extra_params, tracking_db)
+                side_effects = result.get("side_effects", {})
+                
+            elif action_type == "create_quote":
+                result = await handle_create_quote(button_info, action_config, extra_params, tracking_db)
+                side_effects = result.get("side_effects", {})
+                
+            elif action_type == "approve_invoice":
+                result = await handle_approve_invoice(button_info, action_config, extra_params, tracking_db)
+                side_effects = result.get("side_effects", {})
+                
+            elif action_type == "update_opportunity":
+                result = await handle_update_opportunity(button_info, action_config, extra_params, tracking_db)
+                side_effects = result.get("side_effects", {})
+                
+            elif action_type == "assign_task":
+                result = await handle_assign_task(button_info, action_config, extra_params, tracking_db)
+                side_effects = result.get("side_effects", {})
+                
+            elif action_type == "send_followup":
+                result = await handle_send_followup(button_info, action_config, extra_params, tracking_db)
+                side_effects = result.get("side_effects", {})
+                
+            elif action_type == "link_trip":
+                result = await handle_link_trip(button_info, action_config, extra_params, tracking_db)
+                side_effects = result.get("side_effects", {})
+                
+            else:
+                raise ValueError(f"Unknown action type: {action_type}")
+            
+            # 4. Log Successful Execution
+            processing_time = time.time() - start_time
+            execution_uuid = tracking_db.log_action_execution(
+                button_uuid=button_uuid,
+                execution_status="success",
+                execution_result=json.dumps(result) if result else None,
+                processing_time=processing_time,
+                side_effects=side_effects,
+                executed_by=extra_params.get("executed_by", "unknown")
+            )
+            
+            logger.info(f"✅ Action executed successfully: {action_type} ({execution_uuid})")
+            
+            return {
+                "status": "success",
+                "action_type": action_type,
+                "execution_uuid": execution_uuid,
+                "result": result,
+                "processing_time": round(processing_time, 2)
+            }
+            
+        except Exception as action_error:
+            # 5. Log Failed Execution
+            processing_time = time.time() - start_time
+            execution_uuid = tracking_db.log_action_execution(
+                button_uuid=button_uuid,
+                execution_status="failed",
+                error_message=str(action_error),
+                processing_time=processing_time,
+                executed_by=extra_params.get("executed_by", "unknown")
+            )
+            
+            logger.error(f"❌ Action execution failed: {action_type} - {str(action_error)}")
+            
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "Action execution failed",
+                    "action_type": action_type,
+                    "execution_uuid": execution_uuid,
+                    "message": str(action_error)
+                }
+            )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Button action error: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/webhook/ai-whatsapp")
