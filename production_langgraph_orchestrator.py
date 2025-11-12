@@ -252,8 +252,30 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
     """
     🎨 Generate complete HTML for email notifications
     Supports both WEG A (unknown) and WEG B (known) contacts
+    🆕 UUID-BASED BUTTON SYSTEM
     """
+    import uuid
+    
+    # Get database and create communication UUID
+    tracking_db = get_email_tracking_db()
+    communication_uuid = str(uuid.uuid4())
+    email_message_id = notification_data.get('email_message_id', notification_data.get('message_id', f'notification-{int(time.time())}'))
+    
+    # Register communication in database
     notification_type = notification_data.get("notification_type", "unknown_contact_action_required")
+    recipient_email = notification_data.get("recipient_email", "info@cdtechnologies.de")
+    subject = notification_data.get("subject", "Neue Nachricht")
+    
+    tracking_db.register_communication(
+        communication_uuid=communication_uuid,
+        email_message_id=email_message_id,
+        notification_type=notification_type,
+        sent_via="zapier",
+        recipient_email=recipient_email,
+        subject=subject
+    )
+    
+    logger.info(f"📧 Notification registered: {communication_uuid[:8]}... for {email_message_id}")
     
     if notification_type == "known_contact_enhanced":
         # ✅ WEG B: Known Contact Enhanced with Smart Actions & Dashboard Links
@@ -410,7 +432,7 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
 </div>
 """
         
-        # Build action buttons HTML
+        # Build action buttons HTML with UUID-based system
         buttons_html = ""
         for option in action_options:
             action = option.get("action", "")
@@ -437,13 +459,28 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
                 "create": "btn-create"
             }.get(action if action else color, "btn-primary")
             
-            # Route feedback actions to /webhook/feedback
-            if action in ["data_good", "data_error"]:
-                button_url = f"https://my-langgraph-agent-production.up.railway.app/webhook/feedback?action={action}&contact_id={contact_id}&from={from_contact}"
-            elif url:
+            # 🆕 UUID-BASED BUTTON SYSTEM
+            if url:
+                # External URLs (e.g., WeClapp links) - use directly
                 button_url = url
+            elif action in ["data_good", "data_error"]:
+                # Simple feedback actions - keep old endpoint for backward compatibility
+                button_url = f"https://my-langgraph-agent-production.up.railway.app/webhook/feedback?action={action}&contact_id={contact_id}&from={from_contact}"
             else:
-                button_url = f"https://cundd.weclapp.com/webapp/view/party/{contact_id}"
+                # Complex actions - use new UUID system
+                button_url = register_and_create_button_url(
+                    tracking_db=tracking_db,
+                    communication_uuid=communication_uuid,
+                    email_message_id=email_message_id,
+                    action_type=action,
+                    action_label=label,
+                    action_config={
+                        "contact_id": contact_id,
+                        "from_contact": from_contact,
+                        "description": description
+                    },
+                    button_color=color_class
+                )
             
             buttons_html += f"""
             <a href="{button_url}" class="button {color_class}" target="_blank">{label}</a>
@@ -644,7 +681,7 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
             attachments_html = ''
             logger.info(f"⚠️ No attachments, attachments_html is empty")
         
-        # Build action buttons HTML
+        # Build action buttons HTML with UUID-based system
         buttons_html = ""
         for option in action_options:
             action = option.get("action", "")
@@ -662,11 +699,25 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
                 "report_issue": "btn-secondary"
             }.get(action, "btn-default")
             
-            # Route feedback actions to /webhook/feedback, others to /webhook/contact-action
+            # 🆕 UUID-BASED BUTTON SYSTEM
             if action in ["data_good", "data_error", "report_issue"]:
+                # Simple feedback actions - keep old endpoint for backward compatibility
                 button_url = f"https://my-langgraph-agent-production.up.railway.app/webhook/feedback?action={action}&sender={sender}&email_id={email_id}"
             else:
-                button_url = f"{webhook_url}?action={action}&sender={sender}&email_id={email_id}"
+                # Complex actions - use new UUID system
+                button_url = register_and_create_button_url(
+                    tracking_db=tracking_db,
+                    communication_uuid=communication_uuid,
+                    email_message_id=email_message_id,
+                    action_type=action,
+                    action_label=label,
+                    action_config={
+                        "sender": sender,
+                        "email_id": email_id,
+                        "description": description
+                    },
+                    button_color=color_class
+                )
             
             buttons_html += f"""
             <a href="{button_url}" class="button {color_class}">{label}</a>
@@ -826,7 +877,7 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
         ai_analysis = notification_data.get('ai_analysis', {})
         action_options = notification_data.get('action_options', [])
         
-        # Build action buttons HTML
+        # Build action buttons HTML with UUID-based system
         buttons_html = ""
         for option in action_options:
             action = option.get("action", "")
@@ -841,13 +892,28 @@ def generate_notification_html(notification_data: Dict[str, Any]) -> str:
                 "report_issue": "btn-secondary"
             }.get(action, "btn-default")
             
-            # Route feedback actions to /webhook/feedback
-            if action in ["data_good", "data_error", "report_issue"]:
-                button_url = f"https://my-langgraph-agent-production.up.railway.app/webhook/feedback?action={action}&contact_id={contact_id}&from={from_contact}"
-            elif url:
+            # 🆕 UUID-BASED BUTTON SYSTEM
+            if url:
+                # External URLs (e.g., WeClapp links) - use directly
                 button_url = url
+            elif action in ["data_good", "data_error", "report_issue"]:
+                # Simple feedback actions - keep old endpoint for backward compatibility
+                button_url = f"https://my-langgraph-agent-production.up.railway.app/webhook/feedback?action={action}&contact_id={contact_id}&from={from_contact}"
             else:
-                button_url = f"https://my-langgraph-agent-production.up.railway.app/webhook/feedback?type=wrong_match&contact_id={contact_id}&from={from_contact}"
+                # Complex actions - use new UUID system
+                button_url = register_and_create_button_url(
+                    tracking_db=tracking_db,
+                    communication_uuid=communication_uuid,
+                    email_message_id=email_message_id,
+                    action_type=action,
+                    action_label=label,
+                    action_config={
+                        "contact_id": contact_id,
+                        "from_contact": from_contact,
+                        "description": description
+                    },
+                    button_color=color_class
+                )
             
             buttons_html += f"""
             <a href="{button_url}" class="button {color_class}">{label}</a>
