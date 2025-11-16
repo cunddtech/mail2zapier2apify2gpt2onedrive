@@ -26,6 +26,7 @@ import os
 import json
 import asyncio
 import time
+import uuid
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, TypedDict
 from dataclasses import dataclass
@@ -37,6 +38,18 @@ BERLIN_TZ = pytz.timezone('Europe/Berlin')
 def now_berlin():
     """Return current datetime in Berlin timezone"""
     return datetime.now(BERLIN_TZ)
+
+
+DEFAULT_ORCHESTRATOR_BASE_URL = "https://my-langgraph-agent-production.up.railway.app"
+
+
+def get_orchestrator_base_url() -> str:
+    """Return base URL for orchestrator endpoints."""
+
+    override = os.getenv("ORCHESTRATOR_URL")
+    if override:
+        return override.rstrip("/")
+    return DEFAULT_ORCHESTRATOR_BASE_URL
 
 # LangGraph/LangChain Imports
 from langgraph.graph import StateGraph, END
@@ -74,6 +87,8 @@ from modules.pricing.estimate_from_call import (
     format_estimate_for_email,
     ProjectEstimate
 )
+
+from modules.notifications.renderer import render_notification_html
 
 # 📂 Apify Module Imports - Ordnerstruktur & Dokumenten-Klassifikation
 from modules.filegen.folder_logic import generate_folder_and_filenames
@@ -198,795 +213,53 @@ logger = logging.getLogger(__name__)
 # ZAPIER NOTIFICATION FUNCTIONS
 # ===============================
 
-# ========================================
-# UUID BUTTON GENERATION HELPER
-# ========================================
-
-def register_and_create_button_url(
-    tracking_db: EmailTrackingDB,
-    communication_uuid: str,
-    email_message_id: str,
-    action_type: str,
-    action_label: str,
-    action_config: Dict = None,
-    button_color: str = "btn-primary"
-) -> str:
-    """
-    Registriert einen Button in der Datenbank und gibt die UUID-URL zurück.
-    
-    Args:
-        tracking_db: EmailTrackingDB Instanz
-        communication_uuid: UUID der Communication/Notification
-        email_message_id: Message-ID der ursprünglichen Email
-        action_type: Typ der Action (z.B. "create_contact", "schedule_appointment")
-        action_label: Button-Text
-        action_config: Zusätzliche Config-Parameter für die Action
-        button_color: CSS-Klasse für Button-Farbe
-    
-    Returns:
-        UUID-basierte Action URL
-    """
-    import uuid
-    
-    # Generate UUID for button
-    button_uuid = str(uuid.uuid4())
-    
-    # Register in database
-    tracking_db.register_button(
-        button_uuid=button_uuid,
-        communication_uuid=communication_uuid,
-        email_message_id=email_message_id,
-        action_type=action_type,
-        action_label=action_label,
-        action_config=action_config,
-        button_color=button_color
-    )
-    
-    # Build UUID-based URL
-    base_url = "https://my-langgraph-agent-production.up.railway.app"
-    button_url = f"{base_url}/api/action/{button_uuid}"
-    
-    return button_url
-
 def generate_notification_html(notification_data: Dict[str, Any]) -> str:
-    """
-    🎨 Generate complete HTML for email notifications
-    Supports both WEG A (unknown) and WEG B (known) contacts
-    🆕 UUID-BASED BUTTON SYSTEM
-    """
-    import uuid
-    
-    # Get database and create communication UUID
+    """Render notification emails via the unified renderer module."""
+
+    base_url = get_orchestrator_base_url()
     tracking_db = get_email_tracking_db()
-    communication_uuid = str(uuid.uuid4())
-    email_message_id = notification_data.get('email_message_id', notification_data.get('message_id', f'notification-{int(time.time())}'))
-    
-    # Register communication in database
+    communication_uuid = str(notification_data.get("communication_uuid") or uuid.uuid4())
+    email_message_id = (
+        notification_data.get("email_message_id")
+        or notification_data.get("message_id")
+        or f"notification-{int(time.time())}"
+    )
     notification_type = notification_data.get("notification_type", "unknown_contact_action_required")
-    recipient_email = notification_data.get("recipient_email", "info@cdtechnologies.de")
-    subject = notification_data.get("subject", "Neue Nachricht")
-    
-    tracking_db.register_communication(
+    recipient_email = notification_data.get("recipient_email") or "info@cdtechnologies.de"
+    subject = notification_data.get("subject") or "Neue Nachricht"
+
+    payload = dict(notification_data)
+    payload.setdefault("communication_uuid", communication_uuid)
+    payload.setdefault("email_message_id", email_message_id)
+    payload.setdefault("channel", payload.get("message_type"))
+    payload.setdefault("recipient_email", recipient_email)
+    payload.setdefault("subject", subject)
+    payload["rendered_at"] = now_berlin().isoformat()
+
+    try:
+        register_communication = getattr(tracking_db, "register_communication", None)
+        if callable(register_communication):
+            register_communication(
+                communication_uuid=communication_uuid,
+                email_message_id=email_message_id,
+                notification_type=notification_type,
+                sent_via="zapier",
+                recipient_email=recipient_email,
+                subject=subject,
+            )
+    except Exception as exc:
+        logger.warning("Failed to record notification communication: %s", exc)
+
+    html_body = render_notification_html(
+        notification_data=payload,
+        base_url=base_url,
         communication_uuid=communication_uuid,
         email_message_id=email_message_id,
-        notification_type=notification_type,
-        sent_via="zapier",
-        recipient_email=recipient_email,
-        subject=subject
     )
-    
-    logger.info(f"📧 Notification registered: {communication_uuid[:8]}... for {email_message_id}")
-    
-    if notification_type == "known_contact_enhanced":
-        # ✅ WEG B: Known Contact Enhanced with Smart Actions & Dashboard Links
-        subject = notification_data.get('subject', 'Kontakt verarbeitet')
-        contact_match = notification_data.get('contact_match', {})
-        contact_name = contact_match.get('contact_name', 'Unbekannt')
-        company = contact_match.get('company', '')
-        contact_id = contact_match.get('contact_id', '')
-        from_contact = notification_data.get('from', '')
-        body_preview = notification_data.get('body_preview', notification_data.get('content_preview', ''))
-        ai_analysis = notification_data.get('ai_analysis', {})
-        action_options = notification_data.get('action_options', [])
-        tasks_generated = notification_data.get('tasks_generated', [])
-        
-        # ✨ Build Dashboard Links HTML (same as WEG A)
-        dashboard_links_html = ""
-        invoice_id = notification_data.get("invoice_id")
-        opportunity_id = notification_data.get("opportunity_id")
-        onedrive_links = notification_data.get("onedrive_links", [])
-        
-        dashboard_items = []
-        
-        if invoice_id:
-            invoice_number = notification_data.get("invoice_number", invoice_id)
-            dashboard_items.append(
-                f"📄 <a href='https://my-langgraph-agent-production.up.railway.app/api/invoice/{invoice_number}' target='_blank'>Rechnung #{invoice_number} im System anzeigen</a>"
-            )
-        
-        if opportunity_id:
-            opportunity_title = notification_data.get("opportunity_title", f"Opportunity #{opportunity_id}")
-            dashboard_items.append(
-                f"💼 <a href='https://my-langgraph-agent-production.up.railway.app/api/opportunity/{opportunity_id}' target='_blank'>Verkaufschance anzeigen: {opportunity_title}</a>"
-            )
-        
-        if onedrive_links:
-            for link_data in onedrive_links:
-                filename = link_data.get("filename", "Datei")
-                sharing_link = link_data.get("sharing_link")
-                if sharing_link:
-                    dashboard_items.append(
-                        f"☁️ <a href='{sharing_link}' target='_blank'>{filename} in OneDrive öffnen</a>"
-                    )
-        
-        dashboard_items.append(
-            "📊 <a href='http://localhost:3000' target='_blank'>Invoice & Payment Dashboard öffnen</a>"
-        )
-        dashboard_items.append(
-            "💰 <a href='http://localhost:3000/sales-pipeline' target='_blank'>Sales Pipeline Dashboard öffnen</a>"
-        )
-        
-        if dashboard_items:
-            items_html = "<br>".join([f"&nbsp;&nbsp;&nbsp;&nbsp;{item}" for item in dashboard_items])
-            dashboard_links_html = f"""
-<div class="info-box" style="background: linear-gradient(135deg, #E8F5E9 0%, #C8E6C9 100%); border-left: 5px solid #66BB6A;">
-<h3>🔗 Relevante Links:</h3>
-<p>
-{items_html}
-</p>
-</div>
-"""
-        
-        # 📎 Attachments HTML (detailed like WEG A)
-        attachments_html = ""
-        attachments_count = notification_data.get("attachments_count", 0)
-        attachment_results = notification_data.get("attachment_results", [])
-        
-        if attachments_count > 0 and attachment_results:
-            # Build detailed attachment list with OCR results and OneDrive links
-            attachment_details = []
-            for result in attachment_results:
-                name = result.get("filename", "Unbekannt")
-                size = result.get("size", 0)
-                doc_type = result.get("document_type", "unbekannt")
-                ocr_route = result.get("ocr_route", "none")
-                ocr_text = result.get("ocr_text", "")
-                structured_data = result.get("structured_data", {})
-                
-                # Format size
-                if size > 1024 * 1024:
-                    size_str = f"{size / (1024 * 1024):.1f} MB"
-                elif size > 1024:
-                    size_str = f"{size / 1024:.1f} KB"
-                else:
-                    size_str = f"{size} B"
-                
-                # Build detail line
-                detail_line = f"📄 <strong>{name}</strong> ({size_str})"
-                detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🏷️ Typ: {doc_type}"
-                detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🔍 Verarbeitung: {ocr_route}"
-                
-                # Add OCR preview if available
-                if ocr_text and ocr_text != f"[OCR Placeholder for {name} - Type: {doc_type}]":
-                    preview = ocr_text[:150] + "..." if len(ocr_text) > 150 else ocr_text
-                    detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;📝 Inhalt: {preview}"
-                
-                # Add structured data if available
-                if structured_data:
-                    if structured_data.get("invoice_number"):
-                        detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🔢 Rechnungs-Nr: {structured_data['invoice_number']}"
-                    if structured_data.get("total_amount"):
-                        detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;💰 Betrag: {structured_data['total_amount']}"
-                    if structured_data.get("vendor_name"):
-                        detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🏢 Lieferant: {structured_data['vendor_name']}"
-                    if structured_data.get("invoice_date"):
-                        detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;📅 Rechnungsdatum: {structured_data['invoice_date']}"
-                    if structured_data.get("due_date"):
-                        detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;⏰ Fällig am: {structured_data['due_date']}"
-                    if structured_data.get("direction"):
-                        direction_icon = "📥" if structured_data['direction'] == "incoming" else "📤"
-                        direction_text = "Eingang (AN uns)" if structured_data['direction'] == "incoming" else "Ausgang (VON uns)"
-                        detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;{direction_icon} Richtung: {direction_text}"
-                
-                # Add OneDrive links if available
-                onedrive_sharing_link = result.get("onedrive_sharing_link")
-                onedrive_web_url = result.get("onedrive_web_url")
-                onedrive_path = result.get("onedrive_path")
-                
-                if onedrive_sharing_link:
-                    detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🔗 <a href='{onedrive_sharing_link}'>OneDrive Link öffnen</a>"
-                elif onedrive_web_url:
-                    detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🔗 <a href='{onedrive_web_url}'>OneDrive Link öffnen</a>"
-                
-                if onedrive_path:
-                    detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;📂 Ablage: {onedrive_path}"
-                
-                attachment_details.append(detail_line)
-            
-            if attachment_details:
-                details_html = "<br><br>".join(attachment_details)
-                attachments_html = f'<p><strong>📎 Anhänge ({attachments_count}):</strong><br><br>{details_html}</p>'
-            else:
-                attachments_html = f'<p><strong>📎 Anhänge:</strong> {attachments_count} Datei(en) verarbeitet</p>'
-        elif attachments_count > 0:
-            # Fallback if attachment_results missing
-            attachments_html = f"<p><strong>📎 Anhänge:</strong> {attachments_count} Datei(en) verarbeitet</p>"
-        
-        # ✅ Tasks HTML
-        tasks_html = ""
-        if tasks_generated:
-            tasks_items = []
-            for task in tasks_generated:
-                task_title = task.get('title', 'Unbekannte Aufgabe')
-                task_priority = task.get('priority', 'normal')
-                priority_emoji = "🔴" if task_priority == "high" else "🟡" if task_priority == "medium" else "🟢"
-                tasks_items.append(f"{priority_emoji} {task_title}")
-            
-            tasks_list = "<br>".join([f"&nbsp;&nbsp;&nbsp;&nbsp;{item}" for item in tasks_items])
-            tasks_html = f"""
-<div class="info-box" style="background: linear-gradient(135deg, #FFF3E0 0%, #FFE0B2 100%); border-left: 5px solid #FF9800;">
-<h3>✅ Automatisch erstellte Aufgaben ({len(tasks_generated)}):</h3>
-<p>
-{tasks_list}
-</p>
-</div>
-"""
-        
-        # Build action buttons HTML with UUID-based system
-        buttons_html = ""
-        for option in action_options:
-            action = option.get("action", "")
-            label = option.get("label", "")
-            description = option.get("description", "")
-            url = option.get("url", "")
-            color = option.get("color", "primary")
-            
-            color_class = {
-                "view_in_crm": "btn-info",
-                "schedule_appointment": "btn-primary",
-                "create_quote": "btn-success",
-                "call_customer": "btn-info",
-                "create_order": "btn-create",
-                "urgent_response": "btn-warning",
-                "complete_task": "btn-secondary",
-                "data_good": "btn-success",
-                "data_error": "btn-warning",
-                "primary": "btn-primary",
-                "success": "btn-success",
-                "info": "btn-info",
-                "warning": "btn-warning",
-                "secondary": "btn-secondary",
-                "create": "btn-create"
-            }.get(action if action else color, "btn-primary")
-            
-            # 🆕 UUID-BASED BUTTON SYSTEM
-            if url:
-                # External URLs (e.g., WeClapp links) - use directly
-                button_url = url
-            elif action in ["data_good", "data_error"]:
-                # Simple feedback actions - keep old endpoint for backward compatibility
-                button_url = f"https://my-langgraph-agent-production.up.railway.app/webhook/feedback?action={action}&contact_id={contact_id}&from={from_contact}"
-            else:
-                # Complex actions - use new UUID system
-                button_url = register_and_create_button_url(
-                    tracking_db=tracking_db,
-                    communication_uuid=communication_uuid,
-                    email_message_id=email_message_id,
-                    action_type=action,
-                    action_label=label,
-                    action_config={
-                        "contact_id": contact_id,
-                        "from_contact": from_contact,
-                        "description": description
-                    },
-                    button_color=color_class
-                )
-            
-            buttons_html += f"""
-            <a href="{button_url}" class="button {color_class}" target="_blank">{label}</a>
-            <p class="button-desc">{description}</p>
-            """
-        
-        return f"""
-<!DOCTYPE html>
-<html>
-<head>
-<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-<style>
-    body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #2C3E50; background: #FFFFFF; margin: 0; padding: 0; }}
-    .container {{ max-width: 650px; margin: 0 auto; padding: 0; background: white; border-radius: 15px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); overflow: hidden; }}
-    .header {{ background: linear-gradient(135deg, #55EFC4 0%, #00B894 100%); color: white; padding: 30px; text-align: center; }}
-    .header h2 {{ margin: 0; font-size: 24px; text-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
-    .content {{ background: #FFFFFF; padding: 30px; }}
-    .info-box {{ background: linear-gradient(135deg, #E8F8F5 0%, #D1F2EB 100%); padding: 20px; margin: 20px 0; border-radius: 10px; border-left: 5px solid #00B894; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }}
-    .info-box h3 {{ color: #00B894; margin-top: 0; font-size: 18px; }}
-    .info-box p {{ color: #34495E; margin: 8px 0; }}
-    .action-buttons {{ margin: 30px 0; text-align: center; }}
-    .action-buttons h3 {{ color: #2C3E50; margin-bottom: 20px; }}
-    .button {{ display: inline-block; padding: 14px 28px; margin: 8px 5px; text-decoration: none; border-radius: 25px; font-weight: bold; text-align: center; transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }}
-    .btn-create {{ background: linear-gradient(135deg, #52C234 0%, #47A025 100%); color: white; }}
-    .btn-create:hover {{ box-shadow: 0 6px 16px rgba(82,194,52,0.4); transform: translateY(-2px); }}
-    .btn-primary {{ background: linear-gradient(135deg, #3498DB 0%, #2980B9 100%); color: white; }}
-    .btn-primary:hover {{ box-shadow: 0 6px 16px rgba(52,152,219,0.4); transform: translateY(-2px); }}
-    .btn-info {{ background: linear-gradient(135deg, #74B9FF 0%, #0984E3 100%); color: white; }}
-    .btn-info:hover {{ box-shadow: 0 6px 16px rgba(116,185,255,0.4); transform: translateY(-2px); }}
-    .btn-success {{ background: linear-gradient(135deg, #00D2A0 0%, #00B894 100%); color: white; }}
-    .btn-success:hover {{ box-shadow: 0 6px 16px rgba(0,210,160,0.4); transform: translateY(-2px); }}
-    .btn-warning {{ background: linear-gradient(135deg, #FDCB6E 0%, #E17055 100%); color: white; }}
-    .btn-warning:hover {{ box-shadow: 0 6px 16px rgba(253,203,110,0.4); transform: translateY(-2px); }}
-    .btn-secondary {{ background: linear-gradient(135deg, #FFEAA7 0%, #FDCB6E 100%); color: #2C3E50; }}
-    .btn-secondary:hover {{ box-shadow: 0 6px 16px rgba(255,234,167,0.4); transform: translateY(-2px); }}
-    .ai-analysis {{ background: linear-gradient(135deg, #DFE6E9 0%, #B2BEC3 100%); padding: 20px; border-radius: 10px; margin: 20px 0; border-left: 5px solid #74B9FF; }}
-    .ai-analysis h3 {{ color: #0984E3; margin-top: 0; font-size: 18px; }}
-    .ai-analysis p {{ color: #2C3E50; margin: 8px 0; }}
-    .footer {{ text-align: center; padding: 20px; background: linear-gradient(135deg, #F8F9FA 0%, #E9ECEF 100%); color: #7F8C8D; font-size: 13px; border-radius: 0 0 15px 15px; }}
-    .button-desc {{ font-size: 12px; margin: 5px 0 15px 0; color: #7F8C8D; text-align: center; }}
-    strong {{ color: #2C3E50; }}
-</style>
-</head>
-<body>
-<div class="container">
-<div class="header">
-<h2>✅ Bekannter Kontakt verarbeitet</h2>
-</div>
-<div class="content">
-<div class="info-box">
-<h3>👤 Kontakt erkannt:</h3>
-<p><strong>{contact_name}</strong>{f" ({company})" if company else ""}</p>
-<p>Von: {from_contact}</p>
-<p><a href="https://cundd.weclapp.com/webapp/view/party/{contact_id}" target="_blank">📋 In WeClapp öffnen</a></p>
-</div>
-<div class="info-box">
-<h3>📝 Nachricht:</h3>
-<p>{body_preview}</p>
-</div>
-<div class="ai-analysis">
-<h3>🤖 KI-Analyse:</h3>
-<p><strong>Absicht:</strong> {ai_analysis.get('intent', 'unbekannt')}</p>
-<p><strong>Dringlichkeit:</strong> {ai_analysis.get('urgency', 'normal')}</p>
-<p><strong>Stimmung:</strong> {ai_analysis.get('sentiment', 'neutral')}</p>
-{attachments_html}
-</div>
-{tasks_html}
-{dashboard_links_html}
-<div class="action-buttons">
-<h3>🎯 Empfohlene Aktionen:</h3>
-{buttons_html}
-</div>
-</div>
-<div class="footer">
-<p>🤖 Automatisch generiert vom C&D Lead Management System</p>
-<p>Kontakt-ID: {contact_id}</p>
-</div>
-</div>
-</body>
-</html>
-"""
-    
-    if notification_type == "unknown_contact_action_required":
-        # WEG A: Unknown Contact with Action Buttons
-        sender = notification_data.get("sender", "Unbekannt")
-        sender_display = notification_data.get("sender_display", sender)
-        subject = notification_data.get("subject", "Neue Nachricht")
-        body_preview = notification_data.get("body_preview", "")
-        received_time = notification_data.get("received_time", "")
-        ai_analysis = notification_data.get("ai_analysis", {})
-        action_options = notification_data.get("action_options", [])
-        email_id = notification_data.get("email_id", "unknown")
-        webhook_url = notification_data.get("webhook_reply_url", "")
-        
-        # 💰 Build price estimate HTML if present (for calls)
-        price_estimate = notification_data.get("price_estimate")
-        has_price_estimate = notification_data.get("has_price_estimate", False)
-        price_estimate_html = ""
-        
-        if has_price_estimate and price_estimate:
-            # Use the formatting function from the pricing module
-            from modules.pricing.estimate_from_call import ProjectEstimate
-            
-            # Convert dict back to ProjectEstimate object
-            estimate_obj = ProjectEstimate(
-                found=True,
-                project_type=price_estimate.get("project_type", ""),
-                area_sqm=price_estimate.get("area_sqm"),
-                material=price_estimate.get("material", ""),
-                work_type=price_estimate.get("work_type", ""),
-                material_cost=price_estimate.get("material_cost", 0.0),
-                labor_cost=price_estimate.get("labor_cost", 0.0),
-                additional_cost=price_estimate.get("additional_cost", 0.0),
-                total_cost=price_estimate.get("total_cost", 0.0),
-                confidence=price_estimate.get("confidence", 0.0),
-                calculation_basis=price_estimate.get("calculation_basis", []),
-                additional_services=price_estimate.get("additional_services", []),
-                notes=price_estimate.get("notes", "")
-            )
-            
-            price_estimate_html = format_estimate_for_email(estimate_obj)
-            logger.info(f"✅ Generated price estimate HTML for notification")
-        
-        # Build attachments HTML if present
-        attachments_count = notification_data.get("attachments_count", 0)
-        attachment_results = notification_data.get("attachment_results", [])
-        logger.info(f"🔍 DEBUG generate_notification_html: attachments_count={attachments_count}, attachment_results={len(attachment_results)}")
-        
-        if attachments_count > 0:
-            # Build detailed attachment list with OCR results
-            attachment_details = []
-            for result in attachment_results:
-                name = result.get("filename", "Unbekannt")
-                size = result.get("size", 0)
-                doc_type = result.get("document_type", "unbekannt")
-                ocr_route = result.get("ocr_route", "none")
-                ocr_text = result.get("ocr_text", "")
-                structured_data = result.get("structured_data", {})
-                
-                # Format size
-                if size > 1024 * 1024:
-                    size_str = f"{size / (1024 * 1024):.1f} MB"
-                elif size > 1024:
-                    size_str = f"{size / 1024:.1f} KB"
-                else:
-                    size_str = f"{size} B"
-                
-                # Build detail line
-                detail_line = f"📄 <strong>{name}</strong> ({size_str})"
-                detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🏷️ Typ: {doc_type}"
-                detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🔍 Verarbeitung: {ocr_route}"
-                
-                # Add OCR preview if available
-                if ocr_text and ocr_text != f"[OCR Placeholder for {name} - Type: {doc_type}]":
-                    preview = ocr_text[:150] + "..." if len(ocr_text) > 150 else ocr_text
-                    detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;📝 Inhalt: {preview}"
-                
-                # ✨ PHASE 2: Add structured data if available
-                if structured_data:
-                    if structured_data.get("invoice_number"):
-                        detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🔢 Rechnungs-Nr: {structured_data['invoice_number']}"
-                    if structured_data.get("total_amount"):
-                        detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;💰 Betrag: {structured_data['total_amount']}"
-                    if structured_data.get("vendor_name"):
-                        detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🏢 Lieferant: {structured_data['vendor_name']}"
-                    if structured_data.get("invoice_date"):
-                        detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;📅 Rechnungsdatum: {structured_data['invoice_date']}"
-                    if structured_data.get("due_date"):
-                        detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;⏰ Fällig am: {structured_data['due_date']}"
-                    if structured_data.get("direction"):
-                        direction_icon = "📥" if structured_data['direction'] == "incoming" else "📤"
-                        direction_text = "Eingang (AN uns)" if structured_data['direction'] == "incoming" else "Ausgang (VON uns)"
-                        detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;{direction_icon} Richtung: {direction_text}"
-                
-                # ✨ PHASE 2: Add OneDrive links if available
-                onedrive_sharing_link = result.get("onedrive_sharing_link")
-                onedrive_web_url = result.get("onedrive_web_url")
-                onedrive_path = result.get("onedrive_path")
-                
-                if onedrive_sharing_link:
-                    detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🔗 <a href='{onedrive_sharing_link}'>OneDrive Link öffnen</a>"
-                elif onedrive_web_url:
-                    detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;🔗 <a href='{onedrive_web_url}'>OneDrive Link öffnen</a>"
-                
-                if onedrive_path:
-                    detail_line += f"<br>&nbsp;&nbsp;&nbsp;&nbsp;📂 Ablage: {onedrive_path}"
-                
-                attachment_details.append(detail_line)
-            
-            if attachment_details:
-                details_html = "<br><br>".join(attachment_details)
-                attachments_html = f'<p><strong>📎 Anhänge ({attachments_count}):</strong><br><br>{details_html}</p>'
-            else:
-                attachments_html = f'<p><strong>📎 Anhänge:</strong> {attachments_count} Datei(en)</p>'
-            
-            logger.info(f"✅ Generated attachments_html with OCR details: {len(attachment_results)} files")
-        else:
-            attachments_html = ''
-            logger.info(f"⚠️ No attachments, attachments_html is empty")
-        
-        # Build action buttons HTML with UUID-based system
-        buttons_html = ""
-        for option in action_options:
-            action = option.get("action", "")
-            label = option.get("label", "")
-            description = option.get("description", "")
-            color_class = {
-                "create_contact": "btn-create",
-                "create_supplier": "btn-supplier",
-                "add_to_existing": "btn-primary",
-                "mark_private": "btn-private",
-                "mark_spam": "btn-spam",
-                "request_info": "btn-info",
-                "data_good": "btn-success",
-                "data_error": "btn-warning",
-                "report_issue": "btn-secondary"
-            }.get(action, "btn-default")
-            
-            # 🆕 UUID-BASED BUTTON SYSTEM
-            if action in ["data_good", "data_error", "report_issue"]:
-                # Simple feedback actions - keep old endpoint for backward compatibility
-                button_url = f"https://my-langgraph-agent-production.up.railway.app/webhook/feedback?action={action}&sender={sender}&email_id={email_id}"
-            else:
-                # Complex actions - use new UUID system
-                button_url = register_and_create_button_url(
-                    tracking_db=tracking_db,
-                    communication_uuid=communication_uuid,
-                    email_message_id=email_message_id,
-                    action_type=action,
-                    action_label=label,
-                    action_config={
-                        "sender": sender,
-                        "email_id": email_id,
-                        "description": description
-                    },
-                    button_color=color_class
-                )
-            
-            buttons_html += f"""
-            <a href="{button_url}" class="button {color_class}">{label}</a>
-            <p class="button-desc">{description}</p>
-            """
-        
-        # ✨ Build Dashboard Links HTML (Invoice DB, Sales Pipeline, OneDrive)
-        dashboard_links_html = ""
-        invoice_id = notification_data.get("invoice_id")
-        opportunity_id = notification_data.get("opportunity_id")
-        onedrive_links = notification_data.get("onedrive_links", [])
-        
-        dashboard_items = []
-        
-        # Invoice Link
-        if invoice_id:
-            invoice_number = notification_data.get("invoice_number", invoice_id)
-            dashboard_items.append(
-                f"📄 <a href='https://my-langgraph-agent-production.up.railway.app/api/invoice/{invoice_number}' target='_blank'>Rechnung #{invoice_number} im System anzeigen</a>"
-            )
-        
-        # Opportunity Link
-        if opportunity_id:
-            opportunity_title = notification_data.get("opportunity_title", f"Opportunity #{opportunity_id}")
-            dashboard_items.append(
-                f"💼 <a href='https://my-langgraph-agent-production.up.railway.app/api/opportunity/{opportunity_id}' target='_blank'>Verkaufschance anzeigen: {opportunity_title}</a>"
-            )
-        
-        # OneDrive Links
-        if onedrive_links:
-            for link_data in onedrive_links:
-                filename = link_data.get("filename", "Datei")
-                sharing_link = link_data.get("sharing_link")
-                if sharing_link:
-                    dashboard_items.append(
-                        f"☁️ <a href='{sharing_link}' target='_blank'>{filename} in OneDrive öffnen</a>"
-                    )
-        
-        # Dashboard Overview Links
-        dashboard_items.append(
-            "📊 <a href='http://localhost:3000' target='_blank'>Invoice & Payment Dashboard öffnen</a>"
-        )
-        dashboard_items.append(
-            "💰 <a href='http://localhost:3000/sales-pipeline' target='_blank'>Sales Pipeline Dashboard öffnen</a>"
-        )
-        
-        if dashboard_items:
-            items_html = "<br>".join([f"&nbsp;&nbsp;&nbsp;&nbsp;{item}" for item in dashboard_items])
-            dashboard_links_html = f"""
-<div class="info-box" style="background: linear-gradient(135deg, #E8F5E9 0%, #C8E6C9 100%); border-left: 5px solid #66BB6A;">
-<h3>🔗 Relevante Links:</h3>
-<p>
-{items_html}
-</p>
-</div>
-"""
-        
-        html = f"""
-<!DOCTYPE html>
-<html>
-<head>
-<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-<style>
-    body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #2C3E50; background: #FFFFFF; margin: 0; padding: 0; }}
-    .container {{ max-width: 650px; margin: 0 auto; padding: 0; background: white; border-radius: 15px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); overflow: hidden; }}
-    .header {{ background: linear-gradient(135deg, #4ECDC4 0%, #44A08D 100%); color: white; padding: 30px; text-align: center; }}
-    .header h2 {{ margin: 0; font-size: 24px; text-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
-    .content {{ background: #FFFFFF; padding: 30px; }}
-    .info-box {{ background: linear-gradient(135deg, #FFF9E6 0%, #FFE8CC 100%); padding: 20px; margin: 20px 0; border-radius: 10px; border-left: 5px solid #FFB84D; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }}
-    .info-box h3 {{ color: #E67E22; margin-top: 0; font-size: 18px; }}
-    .info-box p {{ color: #34495E; margin: 8px 0; }}
-    .action-buttons {{ margin: 30px 0; text-align: center; }}
-    .action-buttons h3 {{ color: #2C3E50; margin-bottom: 20px; }}
-    .button {{ display: inline-block; padding: 14px 28px; margin: 8px 5px; text-decoration: none; border-radius: 25px; font-weight: bold; text-align: center; transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }}
-    .btn-create {{ background: linear-gradient(135deg, #52C234 0%, #47A025 100%); color: white; }}
-    .btn-create:hover {{ box-shadow: 0 6px 16px rgba(82,194,52,0.4); transform: translateY(-2px); }}
-    .btn-supplier {{ background: linear-gradient(135deg, #FD79A8 0%, #E84393 100%); color: white; }}
-    .btn-supplier:hover {{ box-shadow: 0 6px 16px rgba(253,121,168,0.4); transform: translateY(-2px); }}
-    .btn-primary {{ background: linear-gradient(135deg, #3498DB 0%, #2980B9 100%); color: white; }}
-    .btn-primary:hover {{ box-shadow: 0 6px 16px rgba(52,152,219,0.4); transform: translateY(-2px); }}
-    .btn-private {{ background: linear-gradient(135deg, #A29BFE 0%, #6C5CE7 100%); color: white; }}
-    .btn-private:hover {{ box-shadow: 0 6px 16px rgba(162,155,254,0.4); transform: translateY(-2px); }}
-    .btn-spam {{ background: linear-gradient(135deg, #FF7675 0%, #D63031 100%); color: white; }}
-    .btn-spam:hover {{ box-shadow: 0 6px 16px rgba(255,118,117,0.4); transform: translateY(-2px); }}
-    .btn-info {{ background: linear-gradient(135deg, #74B9FF 0%, #0984E3 100%); color: white; }}
-    .btn-info:hover {{ box-shadow: 0 6px 16px rgba(116,185,255,0.4); transform: translateY(-2px); }}
-    .btn-success {{ background: linear-gradient(135deg, #00D2A0 0%, #00B894 100%); color: white; }}
-    .btn-success:hover {{ box-shadow: 0 6px 16px rgba(0,210,160,0.4); transform: translateY(-2px); }}
-    .btn-warning {{ background: linear-gradient(135deg, #FDCB6E 0%, #E17055 100%); color: white; }}
-    .btn-warning:hover {{ box-shadow: 0 6px 16px rgba(253,203,110,0.4); transform: translateY(-2px); }}
-    .btn-secondary {{ background: linear-gradient(135deg, #FFEAA7 0%, #FDCB6E 100%); color: #2C3E50; }}
-    .btn-secondary:hover {{ box-shadow: 0 6px 16px rgba(255,234,167,0.4); transform: translateY(-2px); }}
-    .ai-analysis {{ background: linear-gradient(135deg, #DFE6E9 0%, #B2BEC3 100%); padding: 20px; border-radius: 10px; margin: 20px 0; border-left: 5px solid #74B9FF; }}
-    .ai-analysis h3 {{ color: #0984E3; margin-top: 0; font-size: 18px; }}
-    .ai-analysis p {{ color: #2C3E50; margin: 8px 0; }}
-    .footer {{ text-align: center; padding: 20px; background: linear-gradient(135deg, #F8F9FA 0%, #E9ECEF 100%); color: #7F8C8D; font-size: 13px; border-radius: 0 0 15px 15px; }}
-    .button-desc {{ font-size: 12px; margin: 5px 0 15px 0; color: #7F8C8D; }}
-    strong {{ color: #2C3E50; }}
-</style>
-</head>
-<body>
-<div class="container">
-<div class="header">
-<h2>�️ Unbekannter Kontakt - Aktion erforderlich</h2>
-</div>
-<div class="content">
-<div class="info-box">
-<h3>📧 Details:</h3>
-<p><strong>Von:</strong> {sender_display}</p>
-<p><strong>Betreff:</strong> {subject}</p>
-<p><strong>Empfangen:</strong> {received_time}</p>
-{attachments_html}
-</div>
-<div class="info-box">
-<h3>📝 Nachricht:</h3>
-<p>{body_preview}</p>
-</div>
-<div class="ai-analysis">
-<h3>🤖 KI-Analyse:</h3>
-<p><strong>Absicht:</strong> {ai_analysis.get('intent', 'unbekannt')}</p>
-<p><strong>Dringlichkeit:</strong> {ai_analysis.get('urgency', 'unbekannt')}</p>
-<p><strong>Stimmung:</strong> {ai_analysis.get('sentiment', 'unbekannt')}</p>
-{attachments_html}
-</div>
-{price_estimate_html}
-{dashboard_links_html}
-<div class="action-buttons">
-<h3>👆 Wähle eine Aktion:</h3>
-{buttons_html}
-</div>
-</div>
-<div class="footer">
-<p>🤖 Automatisch generiert vom C&D Lead Management System</p>
-<p>Email-ID: {email_id}</p>
-</div>
-</div>
-</body>
-</html>
-"""
-        # 🔍 DEBUG: Check if attachments_html is in the generated HTML
-        if "Anhänge:" in html:
-            logger.info(f"✅ HTML contains attachments line!")
-        else:
-            logger.warning(f"❌ HTML does NOT contain attachments line! attachments_html was: {attachments_html}")
-        
-        return html
-    
-    else:
-        # WEG B: Known Contact - Simple notification with feedback button
-        subject = notification_data.get('subject', 'Kontakt verarbeitet')
-        summary = notification_data.get('summary', '')
-        contact_match = notification_data.get('contact_match', {})
-        contact_name = contact_match.get('contact_name', 'Unbekannt')
-        contact_id = contact_match.get('contact_id', '')
-        from_contact = notification_data.get('from', '')
-        content_preview = notification_data.get('content_preview', '')
-        ai_analysis = notification_data.get('ai_analysis', {})
-        action_options = notification_data.get('action_options', [])
-        
-        # Build action buttons HTML with UUID-based system
-        buttons_html = ""
-        for option in action_options:
-            action = option.get("action", "")
-            label = option.get("label", "")
-            description = option.get("description", "")
-            url = option.get("url", "")
-            
-            color_class = {
-                "view_in_crm": "btn-info",
-                "data_good": "btn-success",
-                "data_error": "btn-warning",
-                "report_issue": "btn-secondary"
-            }.get(action, "btn-default")
-            
-            # 🆕 UUID-BASED BUTTON SYSTEM
-            if url:
-                # External URLs (e.g., WeClapp links) - use directly
-                button_url = url
-            elif action in ["data_good", "data_error", "report_issue"]:
-                # Simple feedback actions - keep old endpoint for backward compatibility
-                button_url = f"https://my-langgraph-agent-production.up.railway.app/webhook/feedback?action={action}&contact_id={contact_id}&from={from_contact}"
-            else:
-                # Complex actions - use new UUID system
-                button_url = register_and_create_button_url(
-                    tracking_db=tracking_db,
-                    communication_uuid=communication_uuid,
-                    email_message_id=email_message_id,
-                    action_type=action,
-                    action_label=label,
-                    action_config={
-                        "contact_id": contact_id,
-                        "from_contact": from_contact,
-                        "description": description
-                    },
-                    button_color=color_class
-                )
-            
-            buttons_html += f"""
-            <a href="{button_url}" class="button {color_class}">{label}</a>
-            <p class="button-desc">{description}</p>
-            """
-        
-        return f"""
-<!DOCTYPE html>
-<html>
-<head>
-<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-<style>
-    body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #2C3E50; background: #FFFFFF; margin: 0; padding: 0; }}
-    .container {{ max-width: 650px; margin: 0 auto; padding: 0; background: white; border-radius: 15px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); overflow: hidden; }}
-    .header {{ background: linear-gradient(135deg, #55EFC4 0%, #00B894 100%); color: white; padding: 30px; text-align: center; }}
-    .header h2 {{ margin: 0; font-size: 24px; text-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
-    .content {{ background: #FFFFFF; padding: 30px; }}
-    .info-box {{ background: linear-gradient(135deg, #E8F8F5 0%, #D1F2EB 100%); padding: 20px; margin: 20px 0; border-radius: 10px; border-left: 5px solid #00B894; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }}
-    .info-box h3 {{ color: #00B894; margin-top: 0; font-size: 18px; }}
-    .info-box p {{ color: #34495E; margin: 8px 0; }}
-    .action-buttons {{ margin: 30px 0; text-align: center; }}
-    .action-buttons h3 {{ color: #2C3E50; margin-bottom: 20px; }}
-    .button {{ display: inline-block; padding: 14px 28px; margin: 8px 5px; text-decoration: none; border-radius: 25px; font-weight: bold; text-align: center; transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }}
-    .btn-info {{ background: linear-gradient(135deg, #74B9FF 0%, #0984E3 100%); color: white; }}
-    .btn-info:hover {{ box-shadow: 0 6px 16px rgba(116,185,255,0.4); transform: translateY(-2px); }}
-    .btn-success {{ background: linear-gradient(135deg, #00D2A0 0%, #00B894 100%); color: white; }}
-    .btn-success:hover {{ box-shadow: 0 6px 16px rgba(0,210,160,0.4); transform: translateY(-2px); }}
-    .btn-warning {{ background: linear-gradient(135deg, #FDCB6E 0%, #E17055 100%); color: white; }}
-    .btn-warning:hover {{ box-shadow: 0 6px 16px rgba(253,203,110,0.4); transform: translateY(-2px); }}
-    .btn-secondary {{ background: linear-gradient(135deg, #FFEAA7 0%, #FDCB6E 100%); color: #2C3E50; }}
-    .btn-secondary:hover {{ box-shadow: 0 6px 16px rgba(255,234,167,0.4); transform: translateY(-2px); }}
-    .ai-analysis {{ background: linear-gradient(135deg, #DFE6E9 0%, #B2BEC3 100%); padding: 20px; border-radius: 10px; margin: 20px 0; border-left: 5px solid #74B9FF; }}
-    .ai-analysis h3 {{ color: #0984E3; margin-top: 0; font-size: 18px; }}
-    .ai-analysis p {{ color: #2C3E50; margin: 8px 0; }}
-    .footer {{ text-align: center; padding: 20px; background: linear-gradient(135deg, #F8F9FA 0%, #E9ECEF 100%); color: #7F8C8D; font-size: 13px; border-radius: 0 0 15px 15px; }}
-    .button-desc {{ font-size: 12px; margin: 5px 0 15px 0; color: #7F8C8D; }}
-    strong {{ color: #2C3E50; }}
-</style>
-</head>
-<body>
-<div class="container">
-<div class="header">
-<h2>✅ Kontakt erkannt und verarbeitet</h2>
-</div>
-<div class="content">
-<div class="info-box">
-<h3>👤 Kontakt:</h3>
-<p><strong>{contact_name}</strong></p>
-<p>Von: {from_contact}</p>
-</div>
-<div class="info-box">
-<h3>📝 Nachricht:</h3>
-<p>{content_preview}</p>
-</div>
-<div class="ai-analysis">
-<h3>🤖 Verarbeitung:</h3>
-<p>{summary}</p>
-<p><strong>Absicht:</strong> {ai_analysis.get('intent', 'unbekannt')}</p>
-<p><strong>Dringlichkeit:</strong> {ai_analysis.get('urgency', 'unbekannt')}</p>
-{attachments_html}
-</div>
-<div class="action-buttons">
-<h3>🔗 Aktionen:</h3>
-{buttons_html}
-</div>
-</div>
-<div class="footer">
-<p>🤖 Automatisch generiert vom C&D Lead Management System</p>
-</div>
-</div>
-</body>
-</html>
-"""
+
+    logger.info("Rendered notification (type=%s, uuid=%s)", notification_type, communication_uuid[:8])
+    return html_body
+
 
 async def send_final_notification(processing_result: Dict[str, Any], message_type: str, from_contact: str, content: str):
     """
@@ -2460,7 +1733,7 @@ class ProductionAIOrchestrator:
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.apify_token = os.getenv("APIFY_TOKEN")
         self.weclapp_api_token = os.getenv("WECLAPP_API_TOKEN")
-        self.weclapp_domain = os.getenv("WECLAPP_DOMAIN", "cdtech")
+        self.weclapp_domain = os.getenv("WECLAPP_DOMAIN", "cundd")
         
         # ⚠️ SECURITY: Only log existence, NEVER log actual keys or full env list
         print(f"🔍 Environment Check: OpenAI API Key configured: {bool(self.openai_api_key)}")
