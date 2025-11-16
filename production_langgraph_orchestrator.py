@@ -510,7 +510,7 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
                 "label": "📅 TERMIN VEREINBAREN",
                 "description": "Terminvorschläge an Kunde senden und Aufmaß planen",
                 "color": "primary",
-                "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
+                "url": f"https://cundd.weclapp.com/#/party/show/{contact_match.get('contact_id')}"
             })
         
         if not smart_actions and intent in ["quote_request", "price_inquiry", "preisanfrage", "angebot"]:
@@ -519,7 +519,7 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
                 "label": "💰 ANGEBOT ERSTELLEN",
                 "description": "Angebot in WeClapp erstellen und an Kunden senden",
                 "color": "success",
-                "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
+                "url": f"https://cundd.weclapp.com/#/party/show/{contact_match.get('contact_id')}"
             })
         
         if not smart_actions and intent in ["question", "clarification", "nachfrage", "rückfrage"]:
@@ -528,7 +528,7 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
                 "label": "📞 KUNDE ANRUFEN",
                 "description": "Rückruf planen um Fragen zu klären",
                 "color": "info",
-                "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
+                "url": f"https://cundd.weclapp.com/#/party/show/{contact_match.get('contact_id')}"
             })
         
         if not smart_actions and intent in ["order", "bestellung", "auftrag"]:
@@ -539,7 +539,7 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
                 "label": "✅ AUFTRAG ANLEGEN",
                 "description": "Kundenauftrag in WeClapp erstellen",
                 "color": "create",
-                "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
+                "url": f"https://cundd.weclapp.com/#/party/show/{contact_match.get('contact_id')}"
             })
             
             smart_actions.append({
@@ -547,7 +547,7 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
                 "label": "📦 LIEFERANT BESTELLEN",
                 "description": "Material beim Lieferanten bestellen",
                 "color": "info",
-                "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
+                "url": f"https://cundd.weclapp.com/#/party/show/{contact_match.get('contact_id')}"
             })
             
             smart_actions.append({
@@ -555,7 +555,7 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
                 "label": "📄 AB VERSENDEN",
                 "description": "Auftragsbestätigung an Kunden senden",
                 "color": "primary",
-                "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
+                "url": f"https://cundd.weclapp.com/#/party/show/{contact_match.get('contact_id')}"
             })
             
             smart_actions.append({
@@ -563,7 +563,7 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
                 "label": "💶 ANZAHLUNGSRECHNUNG",
                 "description": "Anzahlungsrechnung erstellen (30-50%)",
                 "color": "success",
-                "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
+                "url": f"https://cundd.weclapp.com/#/party/show/{contact_match.get('contact_id')}"
             })
             
             smart_actions.append({
@@ -571,7 +571,7 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
                 "label": "🔧 MONTAGE TERMINIEREN",
                 "description": "Montagetermin mit Kunde vereinbaren",
                 "color": "warning",
-                "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
+                "url": f"https://cundd.weclapp.com/#/party/show/{contact_match.get('contact_id')}"
             })
         
         # Urgency-based action (zusätzlich zu stage/intent actions)
@@ -581,12 +581,12 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
                 "label": "⚡ DRINGEND BEARBEITEN",
                 "description": "Hohe Priorität - Sofortige Bearbeitung erforderlich",
                 "color": "warning",
-                "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
+                "url": f"https://cundd.weclapp.com/#/party/show/{contact_match.get('contact_id')}"
             })
         
         # Default: "IN CRM ÖFFNEN" nur hinzufügen wenn nicht schon vorhanden
         if not any(a.get("action") == "view_in_crm" for a in smart_actions):
-            opp_url = f"https://cundd.weclapp.com/webapp/view/opportunity/{opportunity_id}" if opportunity_id else f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
+            opp_url = f"https://cundd.weclapp.com/#/salesOrder/show/{opportunity_id}" if opportunity_id else f"https://cundd.weclapp.com/#/party/show/{contact_match.get('contact_id')}"
             smart_actions.append({
                 "action": "view_in_crm",
                 "label": "📋 IN CRM ÖFFNEN",
@@ -602,7 +602,7 @@ async def send_final_notification(processing_result: Dict[str, Any], message_typ
                 "label": f"✓ {task.get('title', 'Task')}",
                 "description": task.get('description', ''),
                 "color": "secondary",
-                "url": f"https://cundd.weclapp.com/webapp/view/party/{contact_match.get('contact_id')}"
+                "url": f"https://cundd.weclapp.com/#/party/show/{contact_match.get('contact_id')}"
             })
         
         # Add feedback options
